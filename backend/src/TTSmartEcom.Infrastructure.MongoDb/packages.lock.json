@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "BCrypt.Net-Next": {
+        "type": "Direct",
+        "requested": "[4.2.1, )",
+        "resolved": "4.2.1",
+        "contentHash": "cJ1Zaad8sBSQJq3QBSPmFuLq0XDi9ys0Dk5S11gakZ2qdFWC1aaRLZ7sqOLQjGJYhgIK3LW3TixJswM6+CVbyw=="
+      },
+      "MongoDB.Driver": {
+        "type": "Direct",
+        "requested": "[3.11.0, )",
+        "resolved": "3.11.0",
+        "contentHash": "xE6TBMsbFL7CYsBKe5S/fC5LYnHXMPwwiZVh7G7lsyNBe6Jr9qUuxt5pWkgb49HC3GlTYIvME1GgkAJgekhG/A==",
+        "dependencies": {
+          "DnsClient": "1.6.1",
+          "MongoDB.Bson": "3.11.0",
+          "SharpCompress": "0.48.1",
+          "Snappier": "1.3.1",
+          "ZstdSharp.Port": "0.7.3"
+        }
+      },
+      "DnsClient": {
+        "type": "Transitive",
+        "resolved": "1.6.1",
+        "contentHash": "4H/f2uYJOZ+YObZjpY9ABrKZI+JNw3uizp6oMzTXwDw6F+2qIPhpRl/1t68O/6e98+vqNiYGu+lswmwdYUy3gg=="
+      },
+      "MongoDB.Bson": {
+        "type": "Transitive",
+        "resolved": "3.11.0",
+        "contentHash": "M3yEubl7SbOl6N+m0L4geRejb3jZTXTs4J77fZUeXgireOPzFTT7taZpVSVOVXAMmS2deb6aS1HPe52oxX/Vyg=="
+      },
+      "SharpCompress": {
+        "type": "Transitive",
+        "resolved": "0.48.1",
+        "contentHash": "SqGaVniGG943Gph/gHhUQUiZPyC7y0tXZyMf0/B2oGsMav9dqs7JJOuUA+xOkwKYaWM2TM7aZQjNK91f4bX71A=="
+      },
+      "Snappier": {
+        "type": "Transitive",
+        "resolved": "1.3.1",
+        "contentHash": "DOdDQiO8YZ5rBtVLY+6CmR1yp9WYoJRgEEktPBrR0tEj9QO2djA/zv0O3DX0OZpEAfosbY8pytQ9tQUogwQsEA=="
+      },
+      "ZstdSharp.Port": {
+        "type": "Transitive",
+        "resolved": "0.7.3",
+        "contentHash": "U9Ix4l4cl58Kzz1rJzj5hoVTjmbx1qGMwzAcbv1j/d3NzrFaESIurQyg+ow4mivCgkE3S413y+U9k4WdnEIkRA=="
+      },
+      "ttsmartecom.application": {
+        "type": "Project",
+        "dependencies": {
+          "TTSmartEcom.Domain": "[1.0.0, )"
+        }
+      },
+      "ttsmartecom.domain": {
+        "type": "Project"
+      }
+    }
+  }
+}

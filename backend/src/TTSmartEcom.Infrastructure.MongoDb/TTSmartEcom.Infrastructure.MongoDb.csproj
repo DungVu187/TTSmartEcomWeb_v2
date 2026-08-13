@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\TTSmartEcom.Application\TTSmartEcom.Application.csproj" />
+    <ProjectReference Include="..\TTSmartEcom.Domain\TTSmartEcom.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" />
+    <PackageReference Include="MongoDB.Driver" />
+  </ItemGroup>
+</Project>

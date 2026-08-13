@@ -1,0 +1,47 @@
+# .NET
+**/bin/
+**/obj/
+*.user
+*.suo
+.tmp-*/
+scratch/
+TestResults/
+coverage/
+*.trx
+
+# Node/Vite
+**/node_modules/
+**/dist/
+**/build/
+**/.vite/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+secrets.json
+*.pfx
+*.pem
+*.key
+
+# Runtime and production data
+upload/
+uploads/
+logs/
+*.log
+backups/
+wdata/
+copy/
+*.archive
+*.archive.gz
+*.bson
+*.dump
+
+# IDE/OS/local agent artifacts
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.codex-backups/

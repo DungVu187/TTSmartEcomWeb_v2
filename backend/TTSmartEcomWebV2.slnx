@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TTSmartEcom.Api/TTSmartEcom.Api.csproj" />
+    <Project Path="src/TTSmartEcom.Application/TTSmartEcom.Application.csproj" />
+    <Project Path="src/TTSmartEcom.Domain/TTSmartEcom.Domain.csproj" />
+    <Project Path="src/TTSmartEcom.Infrastructure.MongoDb/TTSmartEcom.Infrastructure.MongoDb.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TTSmartEcom.ContractTests/TTSmartEcom.ContractTests.csproj" />
+    <Project Path="tests/TTSmartEcom.IntegrationTests/TTSmartEcom.IntegrationTests.csproj" />
+    <Project Path="tests/TTSmartEcom.SecurityTests/TTSmartEcom.SecurityTests.csproj" />
+    <Project Path="tests/TTSmartEcom.UnitTests/TTSmartEcom.UnitTests.csproj" />
+  </Folder>
+</Solution>

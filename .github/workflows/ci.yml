@@ -1,0 +1,57 @@
+name: phase-1-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-1-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: backend/**/packages.lock.json
+      - name: Restore
+        run: dotnet restore backend/TTSmartEcomWebV2.slnx --locked-mode
+      - name: Build
+        run: dotnet build backend/TTSmartEcomWebV2.slnx --no-restore --configuration Release
+      - name: Test
+        run: dotnet test backend/TTSmartEcomWebV2.slnx --no-build --no-restore --configuration Release
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [fe, ad]
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.project }}/package-lock.json
+      - run: npm ci
+      - run: npx vitest run --pool=threads --no-file-parallelism --maxWorkers=1 --minWorkers=1
+      - run: npm run lint
+      - run: npm run build
