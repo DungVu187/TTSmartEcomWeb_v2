@@ -125,12 +125,11 @@ const StationDisplay = () => {
           {sections.map((section, index) => {
             const hasPhoto = !!section.imgUrl;
             const iconClass = getSectionIcon(section.name);
-            const isTramTron = String(section.name || "").toLowerCase().includes("trạm trộn");
 
             return (
               <div
                 key={index}
-                className={`station-detail-card ${hasPhoto ? "has-photo" : "no-photo"} ${isTramTron ? "is-tram-tron" : ""}`}
+                className={`station-detail-card ${hasPhoto ? "has-photo" : "no-photo"}`}
                 onClick={() => handleClick(section.name)}
               >
                 <div className="station-detail-card-left">
@@ -139,28 +138,12 @@ const StationDisplay = () => {
                   </div>
 
                   <h2 className="station-detail-card-title">{section.name}</h2>
-
-                  {isTramTron && (
-                    <div className="station-detail-table-preview">
-                      <div className="station-detail-table-headers">
-                        <span>{t("item_label")}</span>
-                        <span>{t("button_count")}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {hasPhoto && (
                   <div className="station-detail-card-right-img">
                     <img src={resolveStorefrontAssetUrl(section.imgUrl)} alt={section.name} />
                     <div className="station-detail-card-img-gradient" />
-                  </div>
-                )}
-
-                {isTramTron && (
-                  <div className="station-detail-rows-select">
-                    <span>{t("rows_per_page_10")}</span>
-                    <i className="fa-solid fa-angle-down" />
                   </div>
                 )}
 

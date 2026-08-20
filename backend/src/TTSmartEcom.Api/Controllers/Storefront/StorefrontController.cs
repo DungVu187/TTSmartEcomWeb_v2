@@ -119,7 +119,7 @@ public sealed class StorefrontController(
         string imageUrl = PublicUrl(saved.PublicUrl!);
         if (!request.TopPurchaseUrl && !request.HighestRatingUrl)
         {
-            DeleteSavedFile(saved);
+            await DeleteSavedFileAsync(saved, ct);
             return BadRequest(new { success = 0, message = "Vui lòng chọn trường ảnh cần cập nhật" });
         }
         StorefrontContent data = await storefront.UpsertAsync(new StorefrontPatch(
@@ -162,7 +162,7 @@ public sealed class StorefrontController(
         if (!await storefront.ContainsImageAsync(imageUrl, ct)) return NotFound(new { success = 0, message = "Ảnh không tồn tại trong dữ liệu" });
         bool removed = await storefront.RemoveImageAsync(imageUrl, ct);
         if (!removed) return Conflict(new { success = 0, message = "Dữ liệu ảnh vừa được thay đổi, vui lòng thử lại" });
-        LocalMediaDeleteResult deleted = mediaFiles.Delete(imageUrl, "images", "images");
+        LocalMediaDeleteResult deleted = await mediaFiles.DeleteAsync(imageUrl, "images", "images", ct);
         if (!deleted.IsValid) return BadRequest(new { success = 0, message = "Đường dẫn ảnh không hợp lệ" });
         return Ok(new { success = 1, message = "Xóa ảnh thành công", data = await storefront.GetAsync(ct) });
     }
@@ -178,7 +178,7 @@ public sealed class StorefrontController(
             LocalMediaSaveResult saved = await SaveStorefrontImage(file, ct);
             if (!saved.IsSuccess)
             {
-                foreach (LocalMediaSaveResult item in savedFiles) DeleteSavedFile(item);
+                foreach (LocalMediaSaveResult item in savedFiles) await DeleteSavedFileAsync(item, ct);
                 return UploadError(saved);
             }
             savedFiles.Add(saved);
@@ -204,9 +204,11 @@ public sealed class StorefrontController(
         return $"{origin}{relativeUrl}";
     }
 
-    private void DeleteSavedFile(LocalMediaSaveResult saved)
+    private Task<LocalMediaDeleteResult> DeleteSavedFileAsync(LocalMediaSaveResult saved, CancellationToken ct)
     {
-        if (saved.PublicUrl is not null) mediaFiles.Delete(saved.PublicUrl, "images", "images");
+        return saved.PublicUrl is null
+            ? Task.FromResult(LocalMediaDeleteResult.Invalid())
+            : mediaFiles.DeleteAsync(saved.PublicUrl, "images", "images", ct);
     }
 
     private BadRequestObjectResult UploadError(LocalMediaSaveResult result) => BadRequest(new

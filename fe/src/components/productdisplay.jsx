@@ -15,9 +15,6 @@ import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import SmartphoneIcon from "@mui/icons-material/Smartphone";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
-import VerifiedIcon from "@mui/icons-material/Verified";
-import BeenhereIcon from "@mui/icons-material/Beenhere";
-import UndoOutlinedIcon from "@mui/icons-material/UndoOutlined";
 import { useLanguage } from "../context/language.js";
 import { ShopContext } from "../context/shop.js";
 import { formatVariantPrice, isContactOnlyVariant } from "../utils/productpricing";
@@ -375,11 +372,6 @@ function ProductDisplay() {
             <div className="product-gallery-layout">
               <div className="product-gallery-main">
                 <SafeProductImage src={productImage} alt={product.name} className="product-main-canvas" />
-                <div className="product-gallery-benefits">
-                  <span><i className="fa-solid fa-expand" /> {t("real_image_100")}</span>
-                  <span><i className="fa-solid fa-shield-halved" /> {t("official_warranty")}</span>
-                  <span><i className="fa-solid fa-rotate" /> {t("return_by_policy")}</span>
-                </div>
               </div>
             </div>
           </div>
@@ -461,14 +453,6 @@ function ProductDisplay() {
               <a href="https://zalo.me/0813158383" target="_blank" rel="noreferrer"><img src="/icons8-zalo.svg" alt="" /> {t("contact_zalo")}</a>
               <a href="mailto:ttsmart.ltd@gmail.com"><MailOutlineIcon /> {t("send_email")}</a>
               <Link to="/policy"><HelpOutlineIcon /> {t("faqs")}</Link>
-            </div>
-            <div className="product-service-card">
-              <h2>{t("ttsmart_commitment")}</h2>
-              <span><VerifiedIcon /> {t("genuine_100")}</span>
-              <span><BeenhereIcon /> {t("genuine_warranty_label")}</span>
-              <span><UndoOutlinedIcon /> {t("return_3_days")}</span>
-              <span><i className="fa-solid fa-truck-fast" /> {t("nationwide_delivery")}</span>
-              <span><i className="fa-solid fa-headset" /> {t("technical_support_247")}</span>
             </div>
           </aside>
         </section>

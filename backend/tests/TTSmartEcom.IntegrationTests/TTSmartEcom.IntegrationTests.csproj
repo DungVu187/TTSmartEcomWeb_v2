@@ -2,6 +2,7 @@
   <PropertyGroup><IsPackable>false</IsPackable></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\TTSmartEcom.Api\TTSmartEcom.Api.csproj" />
+    <ProjectReference Include="..\..\src\TTSmartEcom.Infrastructure.MongoDb\TTSmartEcom.Infrastructure.MongoDb.csproj" />
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

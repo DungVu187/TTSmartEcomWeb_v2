@@ -3,16 +3,15 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using TTSmartEcom.Infrastructure.MongoDb.Configuration;
 using TTSmartEcom.Infrastructure.MongoDb.Persistence.Repositories.Users;
-using Xunit.Sdk;
 
 namespace TTSmartEcom.IntegrationTests;
 
 public sealed class MongoSuperAdminMutationGuardIntegrationTests
 {
     private const string ConnectionString =
-        "mongodb://localhost:27017/?serverSelectionTimeoutMS=500";
+        "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=500";
 
-    [Fact]
+    [MongoAvailableFact]
     public async Task TryAcquireAsync_WhenRequestsRace_AllowsOneOwnerUntilRelease()
     {
         MongoClient client = new(ConnectionString);
@@ -21,11 +20,7 @@ public sealed class MongoSuperAdminMutationGuardIntegrationTests
             await client.GetDatabase("admin")
                 .RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
         }
-        catch (Exception exception) when (exception is MongoException or TimeoutException)
-        {
-            throw SkipException.ForSkip(
-                "MongoDB local không khả dụng; chưa chạy integration guard Super Admin trên database biệt lập.");
-        }
+        catch (Exception exception) when (exception is MongoException or TimeoutException) { throw new InvalidOperationException("MongoDB không còn khả dụng sau discovery test.", exception); }
 
         string databaseName = $"TTSV2Guard_{Guid.NewGuid():N}";
         IMongoDatabase database = client.GetDatabase(databaseName);

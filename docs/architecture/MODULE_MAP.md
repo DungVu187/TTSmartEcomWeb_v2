@@ -36,3 +36,7 @@ Checkpoint backend đầy đủ gần nhất đạt 332/332 test: Unit 231, Cont
 - Browser/reverse proxy/staging, provider thật và E2E FE/AD với API V2 cùng MongoDB biệt lập chưa được xác minh.
 - Tương thích BSON/ghi chưa phủ đủ 21 collection; xem `docs/migration/MONGODB_MODEL_MAP.md`.
 - `SEC-H-001` vẫn mở và chặn cutover. Module map này không phải tuyên bố feature parity hoặc trạng thái sẵn sàng triển khai.
+
+## Baseline SQL Server v1 tách biệt
+
+`database/sqlserver/v1/` là DDL test-only cho Đợt 2, gồm ControlPlane và Operational dùng lại cho `[TTSmart]`/branch `_online`. Nó không được reference bởi các project runtime hiện tại; kiến trúc và ranh giới được mô tả tại `SQLSERVER_TARGET_ARCHITECTURE.md`.

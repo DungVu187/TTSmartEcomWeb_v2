@@ -1,4 +1,4 @@
-using MongoDB.Driver;
+using System.Data.Common;
 using TTSmartEcom.Application.Common.Errors;
 using TtsApplicationException = TTSmartEcom.Application.Common.Errors.ApplicationException;
 
@@ -20,7 +20,7 @@ public sealed partial class LegacyExceptionMiddleware(RequestDelegate next, ILog
         {
             await WriteErrorAsync(context, new ApplicationError("TTS-API-0001", 1001, 400, "Invalid request"), exception);
         }
-        catch (MongoException exception)
+        catch (DbException exception)
         {
             await WriteErrorAsync(context, new ApplicationError("TTS-MONGO-0001", 9001, 503, "Service unavailable", true), exception);
         }

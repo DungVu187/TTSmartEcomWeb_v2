@@ -146,6 +146,7 @@ public sealed class ProductAiWebApplicationFactory : WebApplicationFactory<Progr
             new Dictionary<string, string?>
             {
                 ["Uploads:RootPath"] = UploadRoot,
+                ["Uploads:RecordMetadata"] = "false",
                 ["Jwt:Secret"] = JwtSecret,
                 ["JWT_SECRET"] = JwtSecret,
             }));

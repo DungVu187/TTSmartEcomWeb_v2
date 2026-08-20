@@ -1,65 +1,39 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const apiTarget = globalThis.process.env.VITE_DEV_API_TARGET || 'http://localhost:5112';
+const apiRoots = [
+  'users',
+  'products',
+  'orders',
+  'chips',
+  'carts',
+  'manages',
+  'iporders',
+  'eporders',
+  'stations',
+  'histories',
+  'activity-logs',
+  'images',
+  'documents',
+  'section-images',
+  'invoice-images',
+  'zalo',
+  'telegram',
+  'voice-vocabs',
+  'health',
+];
+const apiProxy = Object.fromEntries(
+  apiRoots.map((root) => [`/${root}`, { target: apiTarget, changeOrigin: true }]),
+);
+apiProxy['/socket.io'] = { target: apiTarget, changeOrigin: true, ws: true };
+
 // https://vite.dev/config/
 export default defineConfig({
   server: {
     port: 5173,
     host: true, // Expose to local network
-    proxy: {
-      '/users': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/products': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/orders': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/chips': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/carts': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/manages': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/iporders': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/eporders': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/stations': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/histories': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/images': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/section-images': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/station': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-    },
+    proxy: apiProxy,
   },
   plugins: [react()],
   test: {

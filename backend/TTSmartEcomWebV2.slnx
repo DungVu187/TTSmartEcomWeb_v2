@@ -4,6 +4,8 @@
     <Project Path="src/TTSmartEcom.Application/TTSmartEcom.Application.csproj" />
     <Project Path="src/TTSmartEcom.Domain/TTSmartEcom.Domain.csproj" />
     <Project Path="src/TTSmartEcom.Infrastructure.MongoDb/TTSmartEcom.Infrastructure.MongoDb.csproj" />
+    <Project Path="src/TTSmartEcom.Infrastructure.SqlServer/TTSmartEcom.Infrastructure.SqlServer.csproj" />
+    <Project Path="src/TTSmartEcom.MongoSqlMigration/TTSmartEcom.MongoSqlMigration.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TTSmartEcom.ContractTests/TTSmartEcom.ContractTests.csproj" />

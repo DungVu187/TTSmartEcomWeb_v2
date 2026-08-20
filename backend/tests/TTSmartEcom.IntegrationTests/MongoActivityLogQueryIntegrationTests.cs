@@ -4,15 +4,14 @@ using TTSmartEcom.Application.Audit;
 using TTSmartEcom.Domain.Audit;
 using TTSmartEcom.Infrastructure.MongoDb.Configuration;
 using TTSmartEcom.Infrastructure.MongoDb.Persistence.Repositories.Audit;
-using Xunit.Sdk;
 
 namespace TTSmartEcom.IntegrationTests;
 
 public sealed class MongoActivityLogQueryIntegrationTests
 {
-    private const string ConnectionString = "mongodb://localhost:27017/?serverSelectionTimeoutMS=500";
+    private const string ConnectionString = "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=500";
 
-    [Fact]
+    [MongoAvailableFact]
     public async Task QueryAsync_ResolvesProductAndStationReferencesUsingLegacyLabels()
     {
         MongoClient client = new(ConnectionString);
@@ -21,11 +20,7 @@ public sealed class MongoActivityLogQueryIntegrationTests
             await client.GetDatabase("admin")
                 .RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
         }
-        catch (Exception exception) when (exception is MongoException or TimeoutException)
-        {
-            throw SkipException.ForSkip(
-                "MongoDB local không khả dụng; chưa chạy integration ActivityLog trên database biệt lập.");
-        }
+        catch (Exception exception) when (exception is MongoException or TimeoutException) { throw new InvalidOperationException("MongoDB không còn khả dụng sau discovery test.", exception); }
 
         string databaseName = $"TTSmartEcomV2ActivityLogTest_{Guid.NewGuid():N}";
         IMongoDatabase database = client.GetDatabase(databaseName);

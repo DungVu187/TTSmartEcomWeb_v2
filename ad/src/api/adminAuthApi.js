@@ -1,6 +1,7 @@
 import { apiFetch } from "./httpClient";
 
-const getAdminLoginPath = () => import.meta.env.VITE_APP_ADMIN_LOGIN;
+const getAdminLoginPath = () =>
+  import.meta.env.VITE_APP_ADMIN_LOGIN || "/users/admin/login";
 
 export const loginAdmin = (credentials, loginPath = getAdminLoginPath()) =>
   apiFetch(loginPath, {

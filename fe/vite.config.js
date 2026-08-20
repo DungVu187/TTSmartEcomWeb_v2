@@ -1,9 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const apiTarget = globalThis.process.env.VITE_DEV_API_TARGET || "http://localhost:5112";
+
 const createApiProxy = () => ({
   "^/api(?:/|$)": {
-    target: "http://localhost:5000",
+    target: apiTarget,
     changeOrigin: true,
     rewrite: (path) => path.replace(/^\/api(?=\/|$)/, ""),
   },

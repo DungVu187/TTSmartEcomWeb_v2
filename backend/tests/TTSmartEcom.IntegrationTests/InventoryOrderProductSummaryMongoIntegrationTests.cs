@@ -1,6 +1,5 @@
 using MongoDB.Bson;
 using MongoDB.Driver;
-using Xunit.Sdk;
 using TTSmartEcom.Application.Inventory;
 using TTSmartEcom.Domain.Inventory;
 using TTSmartEcom.Infrastructure.MongoDb.Configuration;
@@ -10,9 +9,9 @@ namespace TTSmartEcom.IntegrationTests;
 
 public sealed class InventoryOrderProductSummaryMongoIntegrationTests
 {
-    private const string ConnectionString = "mongodb://localhost:27017/?serverSelectionTimeoutMS=500";
+    private const string ConnectionString = "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=500";
 
-    [Fact]
+    [MongoAvailableFact]
     public async Task ListProducts_GroupsMixedIds_HandlesCorruptLines_AndKeepsLegacyCount()
     {
         MongoClient client = new(ConnectionString);
@@ -20,11 +19,7 @@ public sealed class InventoryOrderProductSummaryMongoIntegrationTests
         {
             await client.GetDatabase("admin").RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
         }
-        catch (MongoException)
-        {
-            throw SkipException.ForSkip(
-                "MongoDB local không khả dụng; chưa chạy integration aggregation trên database biệt lập.");
-        }
+        catch (MongoException exception) { throw new InvalidOperationException("MongoDB không còn khả dụng sau discovery test.", exception); }
 
         string databaseName = $"TTSmartEcomV2InventoryTest_{Guid.NewGuid():N}";
         IMongoDatabase database = client.GetDatabase(databaseName);

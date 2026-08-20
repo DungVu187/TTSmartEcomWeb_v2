@@ -2,13 +2,15 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using TTSmartEcom.Api.Configuration;
 using TTSmartEcom.Application.Abstractions.Files;
+using TTSmartEcom.Infrastructure.SqlServer.Files;
 
 namespace TTSmartEcom.Api.Files;
 
 public sealed class LocalMediaFileService(
     IFileValidationService fileValidation,
     IOptions<UploadOptions> uploadOptions,
-    IWebHostEnvironment environment)
+    IWebHostEnvironment environment,
+    SqlFileMetadataRepository? metadata = null)
 {
     private static readonly string[] AllowedImageExtensions = [".jpg", ".jpeg", ".png", ".webp"];
     private static readonly string[] DangerousInnerExtensions =
@@ -62,6 +64,16 @@ public sealed class LocalMediaFileService(
                     FileOptions.Asynchronous);
                 await using Stream source = file.OpenReadStream();
                 await source.CopyToAsync(destination, cancellationToken);
+                await destination.FlushAsync(cancellationToken);
+                await destination.DisposeAsync();
+                await using FileStream checksumStream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                string sha256 = Convert.ToHexString(await SHA256.HashDataAsync(checksumStream, cancellationToken));
+                if (uploadOptions.Value.RecordMetadata && metadata is not null)
+                {
+                    await metadata.RecordAsync(
+                        $"{directoryName.Trim('/', '\\')}/{fileName}", fileName, file.ContentType,
+                        file.Length, sha256, $"/{publicPath.Trim('/')}/{Uri.EscapeDataString(fileName)}", cancellationToken);
+                }
                 return LocalMediaSaveResult.Saved(
                     fileName,
                     $"/{publicPath.Trim('/')}/{Uri.EscapeDataString(fileName)}");
@@ -96,6 +108,23 @@ public sealed class LocalMediaFileService(
 
         File.Delete(filePath);
         return LocalMediaDeleteResult.DeletedFile(fileName);
+    }
+
+    public async Task<LocalMediaDeleteResult> DeleteAsync(
+        string imageUrl,
+        string publicPath,
+        string directoryName,
+        CancellationToken cancellationToken)
+    {
+        LocalMediaDeleteResult result = Delete(imageUrl, publicPath, directoryName);
+        if (result.IsValid && result.FileName is not null && metadata is not null)
+        {
+            await metadata.MarkDeletedAsync(
+                $"{directoryName.Trim('/', '\\')}/{result.FileName}",
+                cancellationToken);
+        }
+
+        return result;
     }
 
     private static string CreateStorageName(string prefix, string extension)

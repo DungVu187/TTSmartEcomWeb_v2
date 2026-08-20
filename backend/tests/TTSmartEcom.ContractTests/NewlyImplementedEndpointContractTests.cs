@@ -185,6 +185,7 @@ public sealed class NewEndpointWebApplicationFactory : WebApplicationFactory<Pro
                 ["Jwt:Secret"] = JwtSecret,
                 ["JWT_SECRET"] = JwtSecret,
                 ["Uploads:RootPath"] = UploadRoot,
+                ["Uploads:RecordMetadata"] = "false",
                 ["ExternalServices:TelegramBotToken"] = TelegramToken,
                 ["TELEGRAM_BOT_TOKEN"] = TelegramToken,
                 ["ZaloOAuth:StateSecret"] = "contract-test-zalo-state-secret-at-least-32-bytes",

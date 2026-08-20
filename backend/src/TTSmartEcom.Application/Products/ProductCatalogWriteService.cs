@@ -21,7 +21,7 @@ public sealed class ProductCatalogWriteService(
     public async Task<ProductMutationResult> CreateAsync(
         ProductMutation mutation, string? actorName, CancellationToken cancellationToken)
     {
-        ProductMutation? normalized = NormalizeProduct(mutation, requireCoreFields: true);
+        ProductMutation? normalized = NormalizeProduct(mutation, requireNameAndDefaultEarn: true);
         if (normalized is null) return Invalid("Dữ liệu sản phẩm không hợp lệ");
         ProductMutationResult duplicate = await RejectDuplicateCodeAsync(normalized.Code, null, cancellationToken);
         if (duplicate.Status == ProductMutationStatus.Conflict) return duplicate;
@@ -38,7 +38,7 @@ public sealed class ProductCatalogWriteService(
         string id, ProductMutation mutation, string? actorName, CancellationToken cancellationToken)
     {
         if (!IsIdentifier(id)) return Invalid("Mã sản phẩm không hợp lệ");
-        ProductMutation? normalized = NormalizeProduct(mutation, requireCoreFields: false);
+        ProductMutation? normalized = NormalizeProduct(mutation, requireNameAndDefaultEarn: false);
         if (normalized is null) return Invalid("Dữ liệu sản phẩm không hợp lệ");
         ProductMutationResult duplicate = await RejectDuplicateCodeAsync(normalized.Code, id, cancellationToken);
         if (duplicate.Status == ProductMutationStatus.Conflict) return duplicate;
@@ -339,16 +339,18 @@ public sealed class ProductCatalogWriteService(
                 $"Mã sản phẩm \"{code}\" đã tồn tại ({existing.Name}). Vui lòng dùng mã khác.");
     }
 
-    private static ProductMutation? NormalizeProduct(ProductMutation product, bool requireCoreFields)
+    private static ProductMutation? NormalizeProduct(ProductMutation product, bool requireNameAndDefaultEarn)
     {
         if (product.Documents?.Count > 5 || product.Variants?.Count > 100 ||
             product.Documents?.Any(document => document.Id is not null && !IsObjectId(document.Id)) == true) return null;
-        if (requireCoreFields && new[] { product.Type, product.Name, product.Brand, product.Section, product.Value, product.Warranty }
-            .Any(string.IsNullOrWhiteSpace)) return null;
+        // Legacy and AI-created products may legitimately omit classification and
+        // warranty metadata. A create still needs a displayable product name;
+        // updates may be partial.
+        if (requireNameAndDefaultEarn && string.IsNullOrWhiteSpace(product.Name)) return null;
         if (!Within(product.Name, 300) || !Within(product.Code, 120) || !Within(product.Type, 120) ||
             !Within(product.Brand, 120) || !Within(product.Section, 200) || !Within(product.Value, 200) ||
             !Within(product.Warranty, 300)) return null;
-        bool defaultVariantEarn = requireCoreFields;
+        bool defaultVariantEarn = requireNameAndDefaultEarn;
         IReadOnlyList<ProductVariantMutation>? variants = product.Variants?.Select(item => NormalizeVariant(item, true, defaultVariantEarn)).ToArray()!;
         if (variants?.Any(item => item is null) == true) return null;
         return product with

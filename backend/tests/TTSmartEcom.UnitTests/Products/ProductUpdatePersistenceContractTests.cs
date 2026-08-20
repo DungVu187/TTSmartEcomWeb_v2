@@ -85,6 +85,28 @@ public sealed class ProductUpdatePersistenceContractTests
         Assert.Null(InvokeProductNormalizer(mutation));
     }
 
+    [Fact]
+    public void ProductNormalizer_CreateAllowsMissingOptionalClassificationMetadata()
+    {
+        ProductMutation mutation = MutationWithVariant() with
+        {
+            Type = null,
+            Brand = null,
+            Section = null,
+            Value = null,
+            Warranty = null,
+        };
+
+        ProductMutation? normalized = InvokeProductNormalizer(mutation, requireNameAndDefaultEarn: true);
+
+        Assert.NotNull(normalized);
+        Assert.Null(normalized.Type);
+        Assert.Null(normalized.Brand);
+        Assert.Null(normalized.Section);
+        Assert.Null(normalized.Value);
+        Assert.Null(normalized.Warranty);
+    }
+
     private static ProductMutation MutationWithVariant() => new(
         Type: "PLC",
         Name: "Updated product",
@@ -137,11 +159,13 @@ public sealed class ProductUpdatePersistenceContractTests
         return Assert.IsType<BsonDocument>(method.Invoke(null, [mutation, includeInventory]));
     }
 
-    private static ProductMutation? InvokeProductNormalizer(ProductMutation mutation)
+    private static ProductMutation? InvokeProductNormalizer(
+        ProductMutation mutation,
+        bool requireNameAndDefaultEarn = false)
     {
         MethodInfo method = typeof(ProductCatalogWriteService).GetMethod(
             "NormalizeProduct",
             BindingFlags.NonPublic | BindingFlags.Static)!;
-        return method.Invoke(null, [mutation, false]) as ProductMutation;
+        return method.Invoke(null, [mutation, requireNameAndDefaultEarn]) as ProductMutation;
     }
 }

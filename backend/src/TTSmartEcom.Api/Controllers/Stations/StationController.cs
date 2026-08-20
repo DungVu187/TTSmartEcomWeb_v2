@@ -172,7 +172,7 @@ public sealed partial class StationController(
         Station? updated = await stations.UpdateImageAsync(id, imageUrl, ct);
         if (updated is null)
         {
-            mediaFiles.Delete(saved.PublicUrl!, "station", "stations");
+            await mediaFiles.DeleteAsync(saved.PublicUrl!, "station", "stations", ct);
             return NotFound(new { message = "Không tìm thấy station" });
         }
 
@@ -192,7 +192,7 @@ public sealed partial class StationController(
         LocalMediaDeleteResult deleted;
         try
         {
-            deleted = mediaFiles.Delete(current.ImageUrl, "station", "stations");
+            deleted = await mediaFiles.DeleteAsync(current.ImageUrl, "station", "stations", ct);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

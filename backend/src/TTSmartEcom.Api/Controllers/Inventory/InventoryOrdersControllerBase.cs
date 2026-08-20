@@ -179,7 +179,7 @@ public abstract class InventoryOrdersControllerBase(
     }
 
     [HttpDelete("delete-image")]
-    public IActionResult DeleteImage([FromQuery] string? imageUrl)
+    public async Task<IActionResult> DeleteImage([FromQuery] string? imageUrl, CancellationToken ct)
     {
         IActionResult? denied = Permission("edit"); if (denied is not null) return denied;
         if (string.IsNullOrWhiteSpace(imageUrl))
@@ -190,7 +190,7 @@ public abstract class InventoryOrdersControllerBase(
         LocalMediaDeleteResult result;
         try
         {
-            result = mediaFiles.Delete(imageUrl, "invoice-images", "invoices");
+            result = await mediaFiles.DeleteAsync(imageUrl, "invoice-images", "invoices", ct);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

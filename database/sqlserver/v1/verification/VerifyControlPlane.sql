@@ -1,0 +1,16 @@
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+IF DB_NAME() <> N'TTSmart_Control_V1_Test' THROW 51700,N'Verify chi duoc phep chay tren database test ControlPlane.',1;
+IF NOT EXISTS(SELECT 1 FROM dbo.DatabaseInfo WHERE DatabaseKind=N'ControlPlane') THROW 51701,N'DatabaseInfo khong dung DatabaseKind.',1;
+IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE ModuleCode=N'ControlPlane' AND (ScriptChecksum IS NULL OR LEN(ScriptChecksum)<>64)) THROW 51702,N'Co checksum baseline null hoac khong hop le.',1;
+IF (SELECT COUNT(*) FROM dbo.SchemaVersions WHERE ModuleCode=N'ControlPlane')<>6 THROW 51703,N'So migration ControlPlane khong dung.',1;
+IF EXISTS(SELECT 1 FROM sys.foreign_keys WHERE is_disabled=1 OR is_not_trusted=1) THROW 51704,N'Co foreign key bi tat hoac khong trusted.',1;
+IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE is_disabled=1 OR is_not_trusted=1) THROW 51705,N'Co check constraint bi tat hoac khong trusted.',1;
+IF EXISTS(SELECT 1 FROM sys.default_constraints WHERE is_system_named=1 UNION ALL SELECT 1 FROM sys.key_constraints WHERE is_system_named=1 UNION ALL SELECT 1 FROM sys.check_constraints WHERE is_system_named=1 UNION ALL SELECT 1 FROM sys.foreign_keys WHERE is_system_named=1) THROW 51706,N'Co constraint tu sinh ten.',1;
+IF EXISTS(SELECT 1 FROM sys.tables AS t LEFT JOIN sys.indexes AS i ON i.object_id=t.object_id AND i.index_id=0 WHERE t.is_ms_shipped=0 AND i.object_id IS NOT NULL) THROW 51707,N'Co heap khong duoc giai thich.',1;
+IF EXISTS(SELECT 1 FROM sys.columns AS c JOIN sys.tables AS t ON t.object_id=c.object_id JOIN sys.types AS ty ON ty.user_type_id=c.user_type_id WHERE t.is_ms_shipped=0 AND ty.name IN(N'money',N'smallmoney',N'float',N'real',N'text',N'ntext',N'image')) THROW 51708,N'Co kieu du lieu bi cam.',1;
+IF EXISTS(SELECT 1 FROM sys.columns AS c JOIN sys.tables AS t ON t.object_id=c.object_id WHERE t.is_ms_shipped=0 AND c.name COLLATE Latin1_General_100_BIN2 LIKE N'%Password%' AND NOT (t.name=N'UserPasswords' AND c.name IN(N'UserPasswordId',N'PasswordHash'))) THROW 51709,N'Co cot credential khong duoc phep.',1;
+IF EXISTS(SELECT 1 FROM sys.databases WHERE database_id=DB_ID() AND (is_auto_close_on=1 OR is_auto_shrink_on=1 OR page_verify_option_desc<>N'CHECKSUM' OR recovery_model_desc<>N'SIMPLE')) THROW 51710,N'Database options khong dung.',1;
+DBCC CHECKCONSTRAINTS WITH ALL_CONSTRAINTS;
+DBCC CHECKDB (N'TTSmart_Control_V1_Test') WITH PHYSICAL_ONLY, NO_INFOMSGS;
+SELECT N'ControlPlane verification passed' AS Result, COUNT(*) AS AppliedMigrations FROM dbo.SchemaVersions WHERE ModuleCode=N'ControlPlane';

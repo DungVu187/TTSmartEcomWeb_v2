@@ -56,6 +56,15 @@ describe("adminAuthApi", () => {
     });
   });
 
+  it("uses the V2 admin login route when no environment override exists", async () => {
+    await loginAdmin({ phone: "0901234567", password: "secret" });
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/users/admin/login", {
+      method: "POST",
+      json: { phone: "0901234567", password: "secret" },
+    });
+  });
+
   it("maps shared profile and logout contracts", async () => {
     await getAdminProfile();
     await logoutAdmin();

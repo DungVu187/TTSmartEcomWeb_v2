@@ -183,7 +183,7 @@ public sealed class OrdersController(IOrderService orders, LocalMediaFileService
 
     [HttpDelete("delete-image")]
     [PermissionAuthorize("order.edit")]
-    public IActionResult DeleteImage([FromQuery] string? imageUrl)
+    public async Task<IActionResult> DeleteImage([FromQuery] string? imageUrl, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(imageUrl))
         {
@@ -193,7 +193,7 @@ public sealed class OrdersController(IOrderService orders, LocalMediaFileService
         LocalMediaDeleteResult result;
         try
         {
-            result = mediaFiles.Delete(imageUrl, "invoice-images", "invoices");
+            result = await mediaFiles.DeleteAsync(imageUrl, "invoice-images", "invoices", ct);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
