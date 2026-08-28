@@ -129,7 +129,7 @@ public sealed class SqlInventoryOrderIntegrationTests
             InventoryOrderId uniqueidentifier NOT NULL PRIMARY KEY, PublicId char(24) NOT NULL UNIQUE,
             Direction nvarchar(20) NOT NULL, OrderName nvarchar(200) NULL, Note nvarchar(2000) NULL,
             UserName nvarchar(160) NULL, Total decimal(19,4) NULL, TotalRaw nvarchar(200) NULL,
-            Status bit NULL, CompletedAtUtc datetime2(7) NULL, ImagesJson nvarchar(max) NULL,
+            Status bit NULL, TransactionDateUtc datetime2(7) NULL, CompletedAtUtc datetime2(7) NULL, ImagesJson nvarchar(max) NULL,
             SourceCreatedAtUtc datetime2(7) NULL, SourceUpdatedAtUtc datetime2(7) NULL, Version bigint NOT NULL
         );
         CREATE TABLE dbo.InventoryOrderItems (
@@ -143,7 +143,7 @@ public sealed class SqlInventoryOrderIntegrationTests
         );
         CREATE TABLE dbo.StockOperations (
             StockOperationId uniqueidentifier NOT NULL PRIMARY KEY, PublicId char(24) NOT NULL UNIQUE,
-            OperationType nvarchar(100) NULL, SourceReference nvarchar(200) NULL, OccurredAtUtc datetime2(7) NULL,
+            OperationType nvarchar(100) NULL, SourceReference nvarchar(200) NULL, OccurredAtUtc datetime2(7) NULL, TransactionDateUtc datetime2(7) NULL,
             DetailsJson nvarchar(max) NULL, Version bigint NOT NULL
         );
         CREATE TABLE dbo.StockMovementLines (

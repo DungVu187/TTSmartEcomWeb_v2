@@ -26,6 +26,7 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
             ["quantity"] = entry.Quantity,
             ["note"] = entry.Note ?? string.Empty,
             ["isAIScan"] = entry.IsAiScan,
+            ["transactionDate"] = (entry.TransactionDate ?? new DateTimeOffset(now, TimeSpan.Zero)).UtcDateTime,
             ["createdAt"] = now,
             ["updatedAt"] = now,
         };
@@ -33,6 +34,8 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
         Put(document, "orderId", entry.OrderId);
         Put(document, "orderName", entry.OrderName);
         Put(document, "source", entry.Source);
+        if (entry.QuantityBefore.HasValue) document["quantityBefore"] = entry.QuantityBefore.Value;
+        if (entry.QuantityAfter.HasValue) document["quantityAfter"] = entry.QuantityAfter.Value;
         await history.InsertOneAsync(document, cancellationToken: cancellationToken);
     }
 
@@ -43,7 +46,7 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
         int take = query.ExportAll ? MaximumExportRows : query.Limit;
         int skip = query.ExportAll ? 0 : checked((query.Page - 1) * query.Limit);
         List<BsonDocument> documents = await history.Find(filter)
-            .Sort(Builders<BsonDocument>.Sort.Descending("createdAt"))
+            .Sort(Builders<BsonDocument>.Sort.Descending("transactionDate").Descending("createdAt"))
             .Skip(skip)
             .Limit(take)
             .ToListAsync(cancellationToken);
@@ -60,7 +63,7 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
             : b.Eq("productId", productId);
         FilterDefinition<BsonDocument> filter = product & BuildDateFilter(startDate, endDate);
         long total = await history.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
-        List<BsonDocument> documents = await history.Find(filter).Sort(Builders<BsonDocument>.Sort.Descending("createdAt"))
+        List<BsonDocument> documents = await history.Find(filter).Sort(Builders<BsonDocument>.Sort.Descending("transactionDate").Descending("createdAt"))
             .Skip(checked((page - 1) * limit)).Limit(limit).ToListAsync(cancellationToken);
         return new StorageHistoryPage(true, page, limit, total, (int)Math.Ceiling(total / (double)limit), documents.Select(Map).ToArray());
     }
@@ -84,6 +87,14 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
         return result.ModifiedCount;
     }
 
+    public async Task UpdateTransactionDateAsync(string orderId, DateTimeOffset transactionDate, CancellationToken cancellationToken)
+    {
+        await history.UpdateManyAsync(
+            Builders<BsonDocument>.Filter.Eq("orderId", orderId),
+            Builders<BsonDocument>.Update.Set("transactionDate", transactionDate.UtcDateTime).Set("updatedAt", DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+    }
+
     private static FilterDefinition<BsonDocument> BuildFilter(DateTimeOffset? startDate, DateTimeOffset? endDate, string? orderName, string? userName, string? noteType, string? direction)
     {
         FilterDefinitionBuilder<BsonDocument> b = Builders<BsonDocument>.Filter;
@@ -91,7 +102,7 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
         AddRegex(clauses, "orderName", orderName);
         AddRegex(clauses, "userName", userName);
         if (!string.IsNullOrWhiteSpace(noteType)) clauses.Add(NoteTypeFilter(noteType.Trim()));
-        if (direction == "import") clauses.Add(b.Gt("quantity", 0));
+        if (direction == "import") clauses.Add(b.Or(b.Gt("quantity", 0), b.Eq("source", "import_quantity_adjustment")));
         else if (direction == "export") clauses.Add(b.Lt("quantity", 0));
         return b.And(clauses);
     }
@@ -100,8 +111,8 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
     {
         FilterDefinitionBuilder<BsonDocument> b = Builders<BsonDocument>.Filter;
         List<FilterDefinition<BsonDocument>> clauses = [];
-        if (startDate.HasValue) clauses.Add(b.Gte("createdAt", StartOfBangkokDay(startDate.Value)));
-        if (endDate.HasValue) clauses.Add(b.Lte("createdAt", EndOfBangkokDay(endDate.Value)));
+        if (startDate.HasValue) clauses.Add(DateFallbackFilter(b, "$gte", StartOfBangkokDay(startDate.Value)));
+        if (endDate.HasValue) clauses.Add(DateFallbackFilter(b, "$lte", EndOfBangkokDay(endDate.Value)));
         return clauses.Count == 0 ? b.Empty : b.And(clauses);
     }
 
@@ -121,7 +132,7 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
             "xuat_thu_cong" => b.Lt("quantity", 0) & noOrder & notAi & (legacySource | b.Eq("source", "product_manual")),
             "nhap_ai" => b.Gt("quantity", 0) & b.Eq("isAIScan", true),
             "xuat_ai" => b.Lt("quantity", 0) & b.Eq("isAIScan", true),
-            "order_line_manual" or "order_line_complete" or "order_bulk_complete" or "product_manual" => b.Eq("source", noteType),
+            "order_line_manual" or "order_line_complete" or "order_bulk_complete" or "import_quantity_adjustment" or "product_manual" => b.Eq("source", noteType),
             "ban_online" => b.In("source", ["online_sale", "online_sale_revert"]) | (legacySource & b.In("note", ["Đơn hàng bán online", "Hoàn tác đơn bán online"])),
             _ => b.Empty,
         };
@@ -138,10 +149,12 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
         Read(document, "_id") ?? string.Empty, Read(document, "productId"), Read(document, "productName"), ReadDouble(document, "quantity"),
         Read(document, "userName"), Read(document, "orderId"), Read(document, "orderName"), Read(document, "note"),
         document.TryGetValue("isAIScan", out BsonValue ai) && ai.IsBoolean && ai.AsBoolean, Read(document, "source"),
+        ReadDate(document, "transactionDate") ?? ReadDate(document, "createdAt"), ReadNullableDouble(document, "quantityBefore"), ReadNullableDouble(document, "quantityAfter"),
         ReadDate(document, "createdAt"), ReadDate(document, "updatedAt"));
 
     private static string? Read(BsonDocument document, string field) => document.TryGetValue(field, out BsonValue value) && !value.IsBsonNull ? value.IsString ? value.AsString : value.ToString() : null;
     private static double ReadDouble(BsonDocument document, string field) => document.TryGetValue(field, out BsonValue value) && value.IsNumeric ? value.ToDouble() : 0;
+    private static double? ReadNullableDouble(BsonDocument document, string field) => document.TryGetValue(field, out BsonValue value) && value.IsNumeric ? value.ToDouble() : null;
     private static DateTimeOffset? ReadDate(BsonDocument document, string field) => document.TryGetValue(field, out BsonValue value) && value.IsValidDateTime ? new DateTimeOffset(value.ToUniversalTime(), TimeSpan.Zero) : null;
     private static string[] Sort(IEnumerable<string> values) => values.Where(static x => !string.IsNullOrWhiteSpace(x)).Select(static x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Create(new System.Globalization.CultureInfo("vi-VN"), true)).ToArray();
     private static void Put(BsonDocument document, string field, string? value)
@@ -150,4 +163,10 @@ public sealed class MongoStorageHistoryRepository(IMongoDatabaseProvider databas
     }
     private static DateTime StartOfBangkokDay(DateTimeOffset value) => new DateTimeOffset(value.Year, value.Month, value.Day, 0, 0, 0, TimeSpan.FromHours(7)).UtcDateTime;
     private static DateTime EndOfBangkokDay(DateTimeOffset value) => new DateTimeOffset(value.Year, value.Month, value.Day, 23, 59, 59, 999, TimeSpan.FromHours(7)).UtcDateTime;
+    private static FilterDefinition<BsonDocument> DateFallbackFilter(FilterDefinitionBuilder<BsonDocument> builder, string comparison, DateTime value)
+    {
+        FilterDefinition<BsonDocument> transaction = comparison == "$gte" ? builder.Gte("transactionDate", value) : builder.Lte("transactionDate", value);
+        FilterDefinition<BsonDocument> created = comparison == "$gte" ? builder.Gte("createdAt", value) : builder.Lte("createdAt", value);
+        return builder.Or(transaction, builder.And(builder.Eq("transactionDate", BsonNull.Value), created));
+    }
 }

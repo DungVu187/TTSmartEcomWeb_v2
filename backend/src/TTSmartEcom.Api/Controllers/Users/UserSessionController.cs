@@ -13,6 +13,7 @@ using TTSmartEcom.Api.Middleware;
 using TTSmartEcom.Application.Abstractions.Authentication;
 using TTSmartEcom.Application.Abstractions.Users;
 using TTSmartEcom.Application.Users;
+using TTSmartEcom.Application.Security;
 using TTSmartEcom.Domain.Security;
 using TTSmartEcom.Domain.Stations;
 using TTSmartEcom.Domain.Users;
@@ -24,6 +25,7 @@ namespace TTSmartEcom.Api.Controllers.Users;
 [Route("users")]
 public sealed partial class UserSessionController(
     UserAuthenticationService authentication,
+    ControlPlaneAuthenticationService controlPlaneAuth,
     IUserProfileRepository profiles,
     ISuperAdminMutationGuard superAdminGuard,
     IUserRepository users,
@@ -51,6 +53,32 @@ public sealed partial class UserSessionController(
             return BadRequest(new { message = "Thông tin đăng nhập không hợp lệ" });
         }
 
+        // 1. Try Control Plane first
+        ControlPlaneAuthResult ctrlResult = await controlPlaneAuth.AuthenticateAsync(identifier, request.Password, cancellationToken);
+        if (ctrlResult.Status == ControlPlaneAuthStatus.Success && ctrlResult.UserContext is not null)
+        {
+            IssueSessionCookie(ctrlResult.UserContext);
+            return Ok(new { message = "Đăng nhập thành công" });
+        }
+        if (ctrlResult.Status == ControlPlaneAuthStatus.AccountLocked)
+        {
+            return BadRequest(new { message = ctrlResult.Message ?? "Tài khoản đã bị tạm khóa" });
+        }
+        if (ctrlResult.Status == ControlPlaneAuthStatus.AccountInactive)
+        {
+            return BadRequest(new { message = ctrlResult.Message ?? "Tài khoản chưa được kích hoạt hoặc đã bị vô hiệu hóa" });
+        }
+
+        // Only an identifier absent from Control Plane may fall back to the legacy
+        // customer store. A rejected internal identity must never be authenticated
+        // against an operational account with the same login identifier.
+        if (ctrlResult.Status != ControlPlaneAuthStatus.UserNotFound)
+        {
+            LogLoginFailure(logger);
+            return BadRequest(new { message = "Thông tin đăng nhập không hợp lệ" });
+        }
+
+        // 2. Fallback to operational database for customer
         UserRecord? user = await authentication.AuthenticateAsync(identifier, request.Password, cancellationToken);
         if (user is null)
         {
@@ -83,6 +111,32 @@ public sealed partial class UserSessionController(
             return BadRequest(new { message = "Thông tin đăng nhập không hợp lệ" });
         }
 
+        // 1. Try Control Plane for internal user
+        ControlPlaneAuthResult ctrlResult = await controlPlaneAuth.AuthenticateAsync(identifier, request.Password, cancellationToken);
+        if (ctrlResult.Status == ControlPlaneAuthStatus.Success && ctrlResult.UserContext is not null)
+        {
+            IssueSessionCookie(ctrlResult.UserContext);
+            return Ok(new { message = "Đăng nhập admin thành công" });
+        }
+        if (ctrlResult.Status == ControlPlaneAuthStatus.AccountLocked)
+        {
+            return BadRequest(new { message = ctrlResult.Message ?? "Tài khoản đã bị tạm khóa" });
+        }
+        if (ctrlResult.Status == ControlPlaneAuthStatus.AccountInactive)
+        {
+            return BadRequest(new { message = ctrlResult.Message ?? "Tài khoản chưa được kích hoạt hoặc đã bị vô hiệu hóa" });
+        }
+
+        // Only legacy identifiers that are absent from Control Plane can use the
+        // compatibility path. This prevents bypassing a Control Plane password,
+        // lockout or inactive status through a duplicate operational account.
+        if (ctrlResult.Status != ControlPlaneAuthStatus.UserNotFound)
+        {
+            LogLoginFailure(logger);
+            return BadRequest(new { message = "Thông tin đăng nhập không hợp lệ" });
+        }
+
+        // 2. Fallback to operational database for legacy admin
         UserRecord? user = await authentication.AuthenticateAsync(identifier, request.Password, cancellationToken);
         if (user is null)
         {
@@ -381,6 +435,45 @@ public sealed partial class UserSessionController(
             new("role", user.Role),
             new(JwtRegisteredClaimNames.Iat, now.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64),
         ];
+        SigningCredentials credentials = new(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Value.Secret)),
+            SecurityAlgorithms.HmacSha256);
+        JwtSecurityToken token = new(
+            claims: claims,
+            notBefore: now.UtcDateTime,
+            expires: now.AddHours(jwtOptions.Value.SessionHours).UtcDateTime,
+            signingCredentials: credentials);
+        Response.Cookies.Append("authToken", new JwtSecurityTokenHandler().WriteToken(token),
+            CookieOptions(TimeSpan.FromHours(jwtOptions.Value.SessionHours)));
+    }
+
+    private void IssueSessionCookie(ICurrentUserContext user)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        string userIdStr = user.UserId.ToString()!;
+        // Existing endpoints still consume the legacy role claim. Non-platform
+        // Control Plane users are projected as staff; their actual authority is
+        // evaluated from the request-scoped Company/Branch permission context.
+        string role = user.IsPlatformSuperAdmin ? SystemRoles.SuperAdmin : SystemRoles.Staff;
+        List<Claim> claims =
+        [
+            new("userId", userIdStr),
+            new(ClaimTypes.NameIdentifier, userIdStr),
+            new("phone", user.Phone ?? string.Empty),
+            new("role", role),
+            new(JwtRegisteredClaimNames.Iat, now.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64),
+        ];
+
+        if (user.ActiveCompanyId.HasValue)
+        {
+            claims.Add(new("companyId", user.ActiveCompanyId.Value.ToString()));
+        }
+
+        if (user.ActiveBranchId.HasValue)
+        {
+            claims.Add(new("branchId", user.ActiveBranchId.Value.ToString()));
+        }
+
         SigningCredentials credentials = new(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Value.Secret)),
             SecurityAlgorithms.HmacSha256);

@@ -31,6 +31,7 @@ import TelegramSettings from './components/TelegramSettings';
 import VoiceVocab from './components/voicevocab';
 import VoiceSearchFAB from './components/VoiceSearchFAB';
 import { PermissionProvider } from './context/permissioncontext';
+import WorkspaceGate from './components/workspaceGate';
 
 const App = () => {
   return (
@@ -42,9 +43,10 @@ const App = () => {
             path="/*"
             element={
               <ProtectedRoute>
-                <Box sx={{ display: 'flex', width: "100%", height: "100dvh", overflow: "hidden", bgcolor: 'background.default' }}>
-                  <Sidebar />
-                  <Box component="main" className="admin-content-wrapper" sx={{ flex: 1, height: "100%", overflowY: "auto", p: { xs: 1.5, sm: 2 }, pt: { xs: '68px', md: 2 }, minWidth: 0 }}>
+                <WorkspaceGate>
+                  <Box sx={{ display: 'flex', width: "100%", height: "100dvh", overflow: "hidden", bgcolor: 'background.default' }}>
+                    <Sidebar />
+                    <Box component="main" className="admin-content-wrapper" sx={{ flex: 1, height: "100%", overflowY: "auto", p: { xs: 1.5, sm: 2 }, pt: { xs: '68px', md: 2 }, minWidth: 0 }}>
                     <Routes>
                       <Route index element={<Navigate to="/product" replace />} />
                       <Route path="/account" element={<RoleGuard adminOnly><Account /></RoleGuard>} />
@@ -77,9 +79,10 @@ const App = () => {
                       <Route path="/voice-vocab" element={<RoleGuard requiredPermission="voice.manage"><VoiceVocab /></RoleGuard>} />
                       <Route path="*" element={<Navigate to="/product" replace />} />
                     </Routes>
+                    </Box>
+                    <VoiceSearchFAB />
                   </Box>
-                  <VoiceSearchFAB />
-                </Box>
+                </WorkspaceGate>
               </ProtectedRoute>
             }
           />

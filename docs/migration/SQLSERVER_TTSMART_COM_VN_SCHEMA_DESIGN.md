@@ -1,5 +1,7 @@
 # Thiết kế schema database tổng `[ttsmart.com.vn]`
 
+> **Quyết định hiện hành ngày 2026-08-24:** `[ttsmart.com.vn]` chỉ là Platform DB. Mỗi Company có Company DB riêng chứa Product Master/dữ liệu dùng chung và mỗi Branch có Branch DB riêng chứa giao dịch/tồn kho. Mọi nội dung bên dưới đặt sản phẩm/khách hàng gốc trong database tổng hoặc phủ nhận Company DB là thiết kế lịch sử, không còn authoritative. Xem `../architecture/SQLSERVER_TARGET_ARCHITECTURE.md`.
+
 > Cập nhật ownership ngày 2026-08-14: chủ dự án xác nhận `[TTSmart]` là database bán hàng đầy đủ; mỗi chi nhánh có tồn kho/chứng từ riêng, có thể có catalog riêng và ưu tiên cài local/cô lập dữ liệu. Phần control-plane/identity/feature/provisioning vẫn áp dụng, nhưng database tổng không còn ownership Product master. Các bảng catalog/customer đã tạo hiện chưa có dữ liệu nghiệp vụ và chưa được drop hoặc sửa trong lượt khảo sát này. Xem `SQLSERVER_TTSMART_SCHEMA_DESIGN.md`.
 
 ## 1. Vai trò và ranh giới

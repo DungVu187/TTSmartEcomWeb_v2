@@ -13,6 +13,9 @@ public sealed record StorageHistoryEntry(
     string? Note,
     [property: JsonPropertyName("isAIScan")] bool IsAiScan,
     string? Source,
+    DateTimeOffset? TransactionDate,
+    double? QuantityBefore,
+    double? QuantityAfter,
     DateTimeOffset? CreatedAt,
     DateTimeOffset? UpdatedAt);
 

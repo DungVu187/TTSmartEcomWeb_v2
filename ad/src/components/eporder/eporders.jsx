@@ -779,8 +779,9 @@ const EpOrders = () => {
                   <TableCell align="center" style={{ width: "13%" }}>Số lượng sản phẩm</TableCell>
                   <TableCell align="center" style={{ width: "13%" }}>Tổng giá</TableCell>
                   <TableCell align="center" style={{ width: "10%" }}>Trạng thái</TableCell>
-                  <TableCell align="center" style={{ width: "13%" }}>Ngày tạo</TableCell>
-                  <TableCell align="center" style={{ width: "14%" }}>Ngày xuất</TableCell>
+                  <TableCell align="center" style={{ width: "12%" }}>Ngày tạo</TableCell>
+                  <TableCell align="center" style={{ width: "13%" }}>Xuất thực tế</TableCell>
+                  <TableCell align="center" style={{ width: "13%" }}>Xác nhận</TableCell>
                   <TableCell align="center" style={{ width: "100px" }}></TableCell>
                 </TableRow>
               </TableHead>
@@ -837,6 +838,9 @@ const EpOrders = () => {
                         </TableCell>
                         <TableCell align="center">
                           {moment(order.createdAt).format("DD/MM/YYYY HH:mm")}
+                        </TableCell>
+                        <TableCell align="center">
+                          {moment(order.transactionDate || order.createdAt).format("DD/MM/YYYY HH:mm")}
                         </TableCell>
                         <TableCell align="center">
                           {order.completedAt

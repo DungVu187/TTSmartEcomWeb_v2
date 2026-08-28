@@ -1,6 +1,8 @@
 # Khảo sát code và dữ liệu cho database `[TTSmart]`
 
-## 1. Kết luận chính
+> **Trạng thái lịch sử:** kết luận ownership ngày 2026-08-14 trong tài liệu này đã bị thay thế bởi quyết định kiến trúc ngày 2026-08-24. `[TTSmart]` nay là Company DB của TTSmart, sở hữu Product Master và dữ liệu dùng chung; giao dịch/tồn kho riêng phải thuộc Branch DB. Các số liệu khảo sát legacy vẫn là bằng chứng nguồn và không bị loại bỏ. Xem `../architecture/SQLSERVER_TARGET_ARCHITECTURE.md`.
+
+## 1. Kết luận khảo sát lịch sử
 
 `[TTSmart]` là database bán hàng đầy đủ của công ty TTSmart, không phải database chỉ chứa Station, storefront và cấu hình. Kết luận ownership cũ đặt Product/Customer vào `[ttsmart.com.vn]` và chứng từ vào database chi nhánh không còn áp dụng cho dữ liệu hiện tại của TTSmart.
 

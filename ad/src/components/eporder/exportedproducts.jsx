@@ -122,6 +122,7 @@ const ExportedProducts = () => {
                 quantityEx: item.quantityEx,
                 status: item.status,
                 createdAt: order.createdAt,
+                transactionDate: order.transactionDate,
                 completedAt: order.completedAt,
               });
             } else {
@@ -136,6 +137,7 @@ const ExportedProducts = () => {
                     quantityEx: item.quantityEx,
                     status: item.status,
                     createdAt: order.createdAt,
+                    transactionDate: order.transactionDate,
                     completedAt: order.completedAt,
                   },
                 ],
@@ -415,7 +417,8 @@ const ExportedProducts = () => {
                   <TableCell align="center">Số lượng đã xuất</TableCell>
                   <TableCell align="center">Trạng thái</TableCell>
                   <TableCell align="center">Ngày tạo</TableCell>
-                  <TableCell align="center">Ngày xuất</TableCell>
+                  <TableCell align="center">Xuất thực tế</TableCell>
+                  <TableCell align="center">Xác nhận</TableCell>
                   <TableCell align="center">Hành động</TableCell>
                 </TableRow>
               </TableHead>
@@ -434,6 +437,9 @@ const ExportedProducts = () => {
                     </TableCell>
                     <TableCell align="center">
                       {moment(order.createdAt).format("HH:mm [ngày] DD-MM-YYYY")}
+                    </TableCell>
+                    <TableCell align="center">
+                      {moment(order.transactionDate || order.createdAt).format("HH:mm [ngày] DD-MM-YYYY")}
                     </TableCell>
                     <TableCell align="center">
                       {order.completedAt

@@ -1,5 +1,18 @@
 # Trạng thái migration
 
+## Quyết định kiến trúc ba tầng ngày 2026-08-24
+
+Owner đã thay thế quyết định ownership ngày 2026-08-14. Kiến trúc đích hiện hành là Platform DB `[ttsmart.com.vn]` → một Company DB cho mỗi Company → một Branch DB riêng cho mỗi Branch:
+
+- Platform DB giữ Company/Branch, internal identity, role/permission, feature/quota, database registry, provisioning và audit platform.
+- Company DB giữ Product Master/ProductVariant/Brand/Category và dữ liệu dùng chung giữa các Branch. `[TTSmart]` được định vị là Company DB của TTSmart.
+- Branch DB theo convention `[{CompanyCode}_{BranchCode}_online]` giữ đơn hàng, nhập/xuất/tồn, Station, file metadata và Activity History riêng của Branch.
+- Product là thực thể dùng chung cấp Company; các Branch reference cùng `ProductId`. Dashboard Company được đọc tổng hợp nhiều Branch, nhưng mutation giao dịch phải chọn một Branch cụ thể.
+- `ad` vẫn là một admin app với hai workspace Control Plane và Operational. Company/Branch là scope/entity; backend kiểm tra authentication, membership, scope, permission, feature và resource ownership. Platform SuperAdmin bypass permission thông thường nhưng mọi thao tác đặc quyền phải audit.
+- Activity History chi tiết nằm cùng database với dữ liệu được thay đổi; không gom toàn bộ lịch sử Branch lên Company DB.
+
+Đã cập nhật nguồn sự thật tài liệu gồm `AGENTS.md`, `docs/architecture/SQLSERVER_TARGET_ARCHITECTURE.md`, `docs/migration/OPEN_QUESTIONS.md` và các tài liệu lịch sử liên quan. Chưa sửa code, DDL hoặc dữ liệu trong bước chốt tài liệu này. Baseline `ControlPlane + Operational` hai tầng, runtime connection hiện tại và dữ liệu `[TTSmart]` đã materialize là trạng thái chuyển tiếp; việc tách Company/Branch schema, routing và migration lại ownership là **Not yet verified**.
+
 ## Baseline SQL Server v1 ngày 2026-08-15
 
 Đợt 2 đang thực hiện. Baseline test-only tại `database/sqlserver/v1/`: `TTSmart_Control_V1_Test` (32 bảng, 6 migration, 32 PK/41 FK/91 CHECK/40 UQ/89 index) và `TTSmart_Operational_V1_Test` (76 bảng, 11 migration, 76 PK/77 FK/155 CHECK/70 UQ/159 index). `Test-SqlServerV1Baseline.ps1` đã chạy: recreate, concurrent first-run, chạy lặp idempotent, layout/checksum, constraint/security, fingerprint mutation, verify/DBCC và kiểm tra dữ liệu còn lại. SQL module của cả hai baseline đã được kiểm tra UTF-8 theo collation nhị phân; runner đọc SQL bằng `sqlcmd -f i:65001,o:65001`. Không sửa `[ttsmart.com.vn]` (23 bảng/8 migration), `[TTSmart]` (54 bảng/9 migration) hoặc MongoDB `Ecom`. Chi tiết: `SQLSERVER_V1_BASELINE_IMPLEMENTATION.md`.
@@ -300,3 +313,95 @@ Bằng chứng audit dependency:
 - File: 329 metadata/physical/mapping, checksum đúng, 0 issue. Telegram giữ chatSecretReference vào local protected secret store, không còn `chatId` trong JSON Integration; evidence User/Telegram được refresh redaction. Ba OwnerExcluded chat mapping nay trỏ evidence LegacyRecords, nên không còn TargetId rỗng.
 - Build 0 warning/error, Unit 232, Contract 53, Integration 26, Security 32 pass; DBCC và API `/health/live`, `/api/products` với Mongo URI bất khả dụng pass. Vòng backfill thứ hai giữ nguyên số Users, CartItems, UserStations, StationProducts, SalesOrderItems, InventoryOrderItems, StockMovementLines, Files, MigrationMappings, PurchaseCount và ExportProgress; không tạo dòng/mapping/file trùng hoặc thay đổi metric nghiệp vụ. `Version` là metadata concurrency và không được dùng làm metric business migration.
 - Audit mapping cuối đã sửa 846 `LegacyRecords` mapping từng trỏ GUID mapper thay vì `LegacyRecordId` thật. Hiện không còn TargetId rỗng hoặc TargetId đứt trên các bảng mapping, không còn issue mở, JSON Telegram không có `chatId`/plaintext, và API Product trả các property legacy (`infoDoc`, documents, purchaseCount, warranty, solution, features, operatingMethod, advantages, specifications, timestamp cùng field Variant) khi Mongo URI bất khả dụng.
+
+### Phase 3A — Control Plane Runtime Integration — checkpoint xác minh (2026-08-20)
+
+- Đã tách connection database thành hai factory độc lập trong `TTSmartEcom.Infrastructure.SqlServer`:
+  - `IControlDbConnectionFactory` / `ControlDbConnectionFactory`: kết nối tới Control Plane DB `[ttsmart.com.vn]`.
+  - `IOperationalDbConnectionFactory` / `OperationalDbConnectionFactory`: kết nối tới Operational DB `[TTSmart]`.
+  - `ISqlConnectionFactory` / `DefaultSqlConnectionFactory`: mặc định trỏ tới `IOperationalDbConnectionFactory` để giữ tương thích toàn bộ operational repositories hiện hữu.
+- Đã triển khai identity model và context trong Domain:
+  - `ICurrentUserContext` / `CurrentUserContext` với Company memberships (`CompanyMembershipContext`), Branch memberships (`BranchMembershipContext`), Roles và dynamic Permissions.
+  - Phép đánh giá phân quyền rõ ràng: `IsPlatformSuperAdmin`, `CanAccessCompany`, `CanAccessBranch`, `HasCompanyPermission`, `HasBranchPermission`.
+- Đã triển khai Application & SqlServer Infrastructure:
+  - `IControlPlaneIdentityReader` & `SqlControlPlaneIdentityReader`: đọc identity theo quan hệ thực của DDL `ttsmart.com.vn`, lọc membership/role theo trạng thái và khoảng thời gian hiệu lực, đồng thời kiểm tra `ScopeType` và `Roles.CompanyId`.
+  - `IControlPlaneUserRepository` & `SqlControlPlaneUserRepository`: kiểm tra xác thực, khóa tài khoản tự động sau 5 lần sai mật khẩu, ghi nhận `LastLoginAtUtc`; không truy vấn cột `UserPasswords.IsDeleted` vì schema không có cột này.
+  - `IAccessScopeService` & `AccessScopeService`: đánh giá phạm vi đa công ty, đa chi nhánh; permission Control Plane được kiểm tra theo active Company/Branch scope, không dùng tập permission gộp toàn cục.
+  - `ControlPlaneAuthenticationService`: chỉ fallback sang tài khoản legacy khi identifier không tồn tại trong Control Plane; không fallback khi mật khẩu Control Plane sai hoặc tài khoản bị khóa/vô hiệu hóa.
+- Đã bổ sung Middleware và Authorization:
+  - `CurrentUserContextMiddleware`: resolve context từ Control Plane DB hoặc legacy snapshot và gắn vào `HttpContext.Items`.
+  - `ScopeAuthorizeAttribute` & `PermissionAuthorizationHandler`: thực thi phân quyền cấp đối tượng và bảo vệ các endpoint theo scope.
+  - `UserSessionController`: hỗ trợ đăng nhập đa tầng cho SuperAdmin, Company Admin, Branch Staff và Customer.
+- Kết quả backend đã chạy với SQL Server test cô lập qua `TTSMART_SQL_INTEGRATION_CONNECTION`:
+  - `TTSmartEcom.UnitTests`: 245/245 passed.
+  - `TTSmartEcom.SecurityTests`: 37 passed (bổ sung `ControlPlaneBoundarySecurityTests` bao phủ SuperAdmin, Company isolation, Branch isolation, thiếu permission, giả mạo header scope).
+  - `TTSmartEcom.ContractTests`: 53 passed.
+  - `TTSmartEcom.IntegrationTests`: 27 passed (bổ sung `ControlPlaneIdentityIntegrationTests` trên SQL Server test cô lập).
+- Tổng backend: **362/362 test passed** trong lần chạy có database test cô lập. `dotnet build --no-restore` đạt 0 warning/0 error.
+- AD Vitest: **Not yet verified** trong checkpoint này; lệnh giới hạn worker không kết thúc trong thời gian xác minh. Không dùng kết quả cũ 206 test làm bằng chứng mới.
+- `git diff --check`: đã kiểm tra whitespace; không còn lỗi whitespace trong phần Phase 3A.
+
+### Company Database Foundation & Product Master baseline (2026-08-24)
+
+- Đã thêm `database/sqlserver/v1/company/` tách biệt với Operational; guard DDL literal chỉ cho `TTSmart_Company_V1_Test`. Không thay runtime connection, không migrate/copy dữ liệu MongoDB hay file thật, không chạm `[ttsmart.com.vn]`, `[TTSmart]` hoặc database `_online`.
+- Company v1 gồm System, catalog Product Master dùng GUID/PublicId, file metadata ngoài SQL, CompanySettings allowlist, audit append-only và metadata migration/manifest. Schema chủ động loại identity, giao dịch/tồn kho/Station Branch và Outbox/Inbox/sync.
+- Đã khai báo runner/test cho first-run, rerun idempotent, checksum drift, concurrent runner, fingerprint, ràng buộc có rollback, DBCC và guard bảng cấm.
+- `Test-SqlServerCompanyV1Baseline.ps1`: đã chạy đạt trên `DESKTOP-5O6VV3J\SQLEXPRESS` bằng Windows Authentication: first-run/rerun, concurrent runner, checksum drift, fingerprint, constraint rollback và DBCC. DBCC có giới hạn lỗi nội bộ Express với expression `COLLATE BIN2` trên sáu bảng; constraint tương ứng đã được thực thi bằng SQL rollback test. Kết quả không cho phép suy ra migration dữ liệu, routing Company/Branch, contract API hoặc cutover.
+
+### Admin frontend — chọn phạm vi Control Plane (2026-08-20)
+
+- Admin web đọc projection `/users/profile` của Control Plane, gồm company/branch memberships, active scope và permission của scope đang chọn. User Control Plane không có company active phải chọn không gian trước khi vào màn hình nghiệp vụ.
+- Đã bổ sung dialog ba cột theo giao diện quản trị: platform (chỉ SuperAdmin), company và branch; scope lưu cục bộ chỉ chứa GUID Company/Branch, bị xóa khi login/logout.
+- HTTP client tự gắn `X-Company-Id` và `X-Branch-Id` vào request sau khi chọn scope. Thay đổi scope tải lại profile để permission/menu được tính lại theo context mới.
+- Login admin chấp nhận phone hoặc email cho tài khoản Control Plane. Customer/legacy không nhận flow chọn scope và giữ trải nghiệm cũ.
+- Xác minh frontend: build Vite production đạt. Unit test tập trung cho scope/header đạt 8/8. Full AD Vitest: Not yet verified vì runner không kết thúc trong môi trường này; lint không có error và còn 27 warning tồn tại ngoài phần scope.
+- Xác minh backend sau phần projection profile/frontend scope: Not yet verified đầy đủ vì process `TTSmartEcom.Api` đang chạy cục bộ khóa file output. `dotnet restore --locked-mode` đạt; các project Domain, Application và Infrastructure.SqlServer build đạt. Cần dừng/restart API rồi chạy lại toàn bộ backend test trước bàn giao checkpoint kế tiếp.
+
+### Chuyển dữ liệu tài khoản Super Admin sang `[ttsmart.com.vn]` (2026-08-20)
+
+- Đã chuyển chính xác 01 tài khoản Super Admin duy nhất (`Role = superadmin`, `UserId = 37b30d12-29d0-e9d6-9eaf-87e1f5e036ba`, `Phone = 0813158383`, `Name = Super Admin`) từ `[TTSmart].dbo.Users` sang `[ttsmart.com.vn]`:
+  - `[ttsmart.com.vn].dbo.Users`: `UserId = 37b30d12-29d0-e9d6-9eaf-87e1f5e036ba`, `DisplayName = N'Super Admin'`, `AccountType = 1` (Platform), `Status = 1` (Active), `SecurityStamp = NEWID()`, `Version = 10`, `IsDeleted = 0`.
+  - `[ttsmart.com.vn].dbo.UserLogins`: `IdentifierType = 1` (Phone), `DisplayValue = '0813158383'`, `NormalizedValue = '0813158383'`, `IsPrimary = 1`, `IsVerified = 1`, `IsDeleted = 0`.
+  - `[ttsmart.com.vn].dbo.UserPasswords`: `PasswordHash = <bcrypt_hash>`, `HashAlgorithm = 'BCrypt'`, `HashVersion = 1`, `FailedAttemptCount = 0`.
+- Đã kiểm tra đối soát trực tiếp trên SQL Server: đúng 01 bản ghi trên mỗi bảng `Users`, `UserLogins`, `UserPasswords`, không có dữ liệu dư thừa, không có tài khoản khách hàng hay tài khoản khác bị chuyển nhầm vào database tổng.
+
+### Tương thích ngày giao dịch đơn nhập/xuất (2026-08-21)
+
+- Đã bổ sung `transactionDate` cho contract/domain đơn nhập/xuất, fallback `createdAt` khi bản ghi legacy thiếu trường, và cập nhật API response/list theo ngày giao dịch thực tế.
+- Đã bổ sung `TransactionDateUtc` cho SQL Operational qua migration version 14; `StockOperations` tách thời điểm ghi operation (`OccurredAtUtc`) khỏi ngày giao dịch. Migration 014 đã được hiệu chỉnh để thực sự `ALTER TABLE dbo.InventoryOrders` khi thiếu cột (bản trước chỉ `UPDATE` khi cột đã tồn tại), đồng thời không `ALTER` các bảng `ImportOrders`/`ExportOrders` không tồn tại. DDL recreate `[TTSmart]` cũng đã khai báo sẵn cột này cho `InventoryOrders` và `StockOperations` để tránh tái phát khi dựng database test.
+- Xác minh sau hiệu chỉnh: `dotnet build .\backend\TTSmartEcomWebV2.slnx --no-restore` đạt 0 warning/0 error; `dotnet test .\backend\TTSmartEcomWebV2.slnx --no-build` chưa đạt vì môi trường chưa có `TTSMART_SQL_INTEGRATION_CONNECTION` (11 integration test bị dynamic-skip ghi nhận là failure) và còn 1 unit test scope đang fail ngoài thay đổi migration. Chưa chạy DDL trên database thật.
+- Frontend AD sau khi sửa thông báo lỗi: `npm run build` đạt; Vitest theo lệnh giới hạn worker không kết thúc trong thời gian xác minh nên giữ trạng thái `Not yet verified`.
+- Đối chiếu legacy ngày 2026-08-21 xác nhận bảng nhập/xuất có ba cột thời gian: `Ngày tạo`, `Nhập/Xuất thực tế` từ `transactionDate`, và `Xác nhận` từ `completedAt`. AD V2 đã bổ sung lại cột còn thiếu cho trang nhập, xuất và hai bảng sản phẩm liên quan; `npm run build` đạt.
+- Chi tiết đơn nhập/xuất đã có ô `datetime-local` để sửa `transactionDate` ở giữa nhóm metadata; nút lưu dùng endpoint cập nhật metadata hiện có và bị khóa nếu thiếu permission edit. Frontend build sau thay đổi đạt.
+- Socket.IO đã nhận diện Super Admin từ Control Plane thay vì chỉ truy vấn Operational `Users`; integration test WebSocket-first cho Super Admin Control Plane đạt 1/1. API local đã được khởi động lại sau build và `/health/live` trả `200`.
+- Endpoint `GET /users/order-templates` đã được điều chỉnh để Control Plane/Super Admin không có Operational profile nhận `orderTemplates: []` thay vì `404`; cần khởi động lại API để nạp binary mới. Build lại sau thay đổi này bị process `TTSmartEcom.Api` đang chạy khóa file output (`MSB3021/MSB3027`), nên chưa xác minh lại build sạch.
+- Đã bổ sung mapping Mongo cho `transactionDate`, `quantityBefore`, `quantityAfter` và source `import_quantity_adjustment`; chưa chạy migration dữ liệu thật.
+- `dotnet build .\backend\TTSmartEcomWebV2.slnx --no-restore`: đạt 0 warning/0 error. `dotnet test --no-build`: Unit 245/246 (1 lỗi security đang có), Contract 53/53, Security 37/37; Integration 11 test cần `TTSMART_SQL_INTEGRATION_CONNECTION` nên chưa xác minh.
+
+### Audit project Đợt 2 — checkpoint ngày 2026-08-24
+
+- Kiến trúc dependency tĩnh: không thấy type MongoDB/EF Core/SQL client trong Domain/Application và không thấy Api truy cập database trực tiếp. Backend build đạt 0 warning/0 error.
+- Backend test không dùng SQL ngoài: Unit 246/246, Contract 53/53, Security 37/37 đạt. Integration có 17 case đạt và 11 case SQL bị runner ghi failure từ `SkipException.ForSkip` khi thiếu `TTSMART_SQL_INTEGRATION_CONNECTION`; vì exit code toàn lệnh là 1, không ghi nhận full backend pass.
+- FE: build, lint và 81/81 Vitest đạt. AD: build đạt; lint exit 0 với 28 warning; 8/8 test scope/header đạt. Full AD Vitest không kết thúc trong giới hạn 120 giây nên **Not yet verified**.
+- Dependency: NuGet audit không có advisory; FE npm audit có 0 finding; AD còn 2 Moderate và 0 High/Critical. Không có secret scanner chuyên dụng trong môi trường; kiểm tra pattern thủ công chỉ thấy placeholder/synthetic/local config, nên không được coi là secret scan đạt.
+- `git diff --check` đạt tại đầu audit; file untracked đã kiểm tra UTF-8 đều hợp lệ. Không chạy DDL, DBCC, migration hoặc integration SQL vì chưa có dependency test được cấp rõ trong phiên audit.
+- Finding mới chặn rollout/cutover: MongoDB archive nằm sai ranh giới workspace (`SEC-H-004`), scope Branch chưa route database Operational (`SEC-H-005`), session Control Plane chưa gắn security stamp (`SEC-H-006`) và runbook SQL có đường recreate destructive/checksum overwrite (`SEC-H-007`). Các gap self-service/role, `ScopeAuthorize` và PII tài liệu được theo dõi ở `SEC-M-010`–`SEC-M-012`.
+### Khảo sát read-only chức năng lốp V1 (2026-08-27)
+
+- Legacy hiện ở branch `TTSmartEcom_Deploy`, commit `73b6967d65e1ca2ac32e9cf7484772e70c51c140`, worktree sạch trước/sau khảo sát. Hai commit mới bổ sung domain quản lý xe, đơn lốp và vòng đời lốp với 25 handler backend (50 dạng URL khi tính `/api`), 3 route admin, 2 model/collection mới, permission và test chuyên biệt.
+- V2 chưa có code, DDL, API/access matrix hoặc MongoDB mapping cho `Vehicle`, `TireOrder` và vòng đời lốp. Đây là phạm vi discovery/migration mới: Product/Variant thuộc Company DB; xe, đơn, assignment, tồn kho, lịch sử và vòng đời thuộc Branch DB; không dùng foreign key/transaction xuyên database.
+- Chỉ đọc source; không chạy server/build/test/database/seed/migration và không sửa legacy. Test V1 được đánh dấu **Not yet verified** vì integration suite hardcode MongoDB local `test` và xóa dữ liệu collection trong quá trình chạy. Chi tiết bằng chứng và gap được ghi tại `docs/migration/LEGACY_BASELINE.md`.
+
+### Profile MongoDB `Ecom` cho chức năng lốp (2026-08-27)
+
+- Đã profile read-only snapshot local: MongoDB 8.0.26, 21 collection/1.670 document; `vehicles=7`, `tireorders=6`, 7 vehicle entry, 4 assignment và 3 inventory adjustment. Không ghi MongoDB, không xuất document/PII/ID.
+- Reference Vehicle/Product/Variant/User và invariant vị trí/tổng/tồn của sáu đơn hiện đều khớp. Gap dữ liệu cần bảo toàn: hai Vehicle active thiếu `wheelCount`; hai đơn completed thiếu `isDeleted`; 18/21 stock history và 92/106 activity tire-order trỏ tới đơn không còn trong collection.
+- `vehicles`/`tireorders` đã được thêm vào model map và field-level manifest với trạng thái `Blocked`; chưa có Branch schema, mapper, dry-run, reconcile hoặc runtime V2. Chi tiết tại `MONGODB_ECOM_TIRE_PROFILE_2026-08-27.md`.
+- Không chạy build/test. Trong lúc khảo sát, legacy xuất hiện tám thay đổi đồng thời: ba file chuyển integration test sang `mongodb-memory-server` và năm file test frontend lốp untracked. Khảo sát không tạo/chỉnh sửa các file này và đã giữ nguyên.
+
+### Xác minh trước khi push nhánh checkpoint (2026-08-28)
+
+- `dotnet restore .\backend\TTSmartEcomWebV2.slnx --locked-mode` đạt. Build Debug bị tiến trình `TTSmartEcom.Api` đang chạy khóa file output; build Release bằng `dotnet build .\backend\TTSmartEcomWebV2.slnx --no-restore -c Release` đạt 0 warning/0 error.
+- Backend Release: Unit 246/246, Contract 53/53 và Security 37/37 đạt. Integration có 17 case đạt; 11 case SQL bị runner ghi failure từ dynamic-skip do không có `TTSMART_SQL_INTEGRATION_CONNECTION`. Full backend test và các integration test SQL là **Not yet verified** trong checkpoint này.
+- AD Vitest theo lệnh giới hạn worker đã kết thúc: 26/26 file và 209/209 test đạt. Runner còn in cảnh báo React `act(...)`/ref trong test nhưng exit code bằng 0.
+- Kiểm tra pattern thủ công trên các file thay đổi không phát hiện literal secret, private-key marker hoặc tên file nhạy cảm. Đây không phải kết quả từ secret scanner chuyên dụng.

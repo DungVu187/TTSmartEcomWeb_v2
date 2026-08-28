@@ -73,7 +73,7 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
             UpdateDefinition<IpOrderDocument> update = Builders<IpOrderDocument>.Update
                 .Set(x => x.OrderName, desired.OrderName).Set(x => x.Note, desired.Note).Set(x => x.UserName, desired.UserName)
                 .Set(x => x.ProductList, desired.ProductList).Set(x => x.Images, desired.Images).Set(x => x.Total, desired.Total)
-                .Set(x => x.Status, desired.Status).Set(x => x.CompletedAt, desired.CompletedAt).Set(x => x.UpdatedAt, DateTime.UtcNow)
+                .Set(x => x.Status, desired.Status).Set(x => x.TransactionDate, desired.TransactionDate).Set(x => x.CompletedAt, desired.CompletedAt).Set(x => x.UpdatedAt, DateTime.UtcNow)
                 .Inc(x => x.Version, 1);
             IpOrderDocument? updated = await imports.FindOneAndUpdateAsync(
                 Builders<IpOrderDocument>.Filter.And(Builders<IpOrderDocument>.Filter.Eq(x => x.Id, id), VersionFilter<IpOrderDocument>(expectedVersion)),
@@ -88,7 +88,7 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
             UpdateDefinition<EpOrderDocument> update = Builders<EpOrderDocument>.Update
                 .Set(x => x.OrderName, desired.OrderName).Set(x => x.Note, desired.Note).Set(x => x.UserName, desired.UserName)
                 .Set(x => x.ProductList, desired.ProductList).Set(x => x.Images, desired.Images).Set(x => x.Total, desired.Total)
-                .Set(x => x.Status, desired.Status).Set(x => x.CompletedAt, desired.CompletedAt).Set(x => x.UpdatedAt, DateTime.UtcNow)
+                .Set(x => x.Status, desired.Status).Set(x => x.TransactionDate, desired.TransactionDate).Set(x => x.CompletedAt, desired.CompletedAt).Set(x => x.UpdatedAt, DateTime.UtcNow)
                 .Inc(x => x.Version, 1);
             EpOrderDocument? updated = await exports.FindOneAndUpdateAsync(
                 Builders<EpOrderDocument>.Filter.And(Builders<EpOrderDocument>.Filter.Eq(x => x.Id, id), VersionFilter<EpOrderDocument>(expectedVersion)),
@@ -115,7 +115,7 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
     {
         FilterDefinition<IpOrderDocument> filter = BuildImportFilter(query);
         List<IpOrderDocument> documents = await imports.Find(filter)
-            .Sort(query.ByCompletedDate ? Builders<IpOrderDocument>.Sort.Descending(x => x.CompletedAt) : Builders<IpOrderDocument>.Sort.Descending(x => x.CreatedAt))
+            .Sort(query.ByCompletedDate ? Builders<IpOrderDocument>.Sort.Descending(x => x.TransactionDate).Descending(x => x.CreatedAt) : Builders<IpOrderDocument>.Sort.Descending(x => x.CreatedAt))
             .Skip((query.Page - 1) * 20).Limit(20).ToListAsync(ct);
         long total = await imports.CountDocumentsAsync(filter, cancellationToken: ct);
         return (documents.Select(Map).ToArray(), total);
@@ -125,7 +125,7 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
     {
         FilterDefinition<EpOrderDocument> filter = BuildExportFilter(query);
         List<EpOrderDocument> documents = await exports.Find(filter)
-            .Sort(query.ByCompletedDate ? Builders<EpOrderDocument>.Sort.Descending(x => x.CompletedAt) : Builders<EpOrderDocument>.Sort.Descending(x => x.CreatedAt))
+            .Sort(query.ByCompletedDate ? Builders<EpOrderDocument>.Sort.Descending(x => x.TransactionDate).Descending(x => x.CreatedAt) : Builders<EpOrderDocument>.Sort.Descending(x => x.CreatedAt))
             .Skip((query.Page - 1) * 20).Limit(20).ToListAsync(ct);
         long total = await exports.CountDocumentsAsync(filter, cancellationToken: ct);
         return (documents.Select(Map).ToArray(), total);
@@ -138,7 +138,7 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
         if (!string.IsNullOrWhiteSpace(query.OrderName)) filter &= b.Regex(x => x.OrderName, new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(query.OrderName), "i"));
         if (!string.IsNullOrWhiteSpace(query.UserName)) filter &= b.Regex(x => x.UserName, new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(query.UserName), "i"));
         if (query.ByCompletedDate) filter &= b.Eq(x => x.Status, true); else if (query.Status.HasValue) filter &= b.Eq(x => x.Status, query.Status.Value);
-        return AddDates(filter, query, b, x => x.CreatedAt, x => x.CompletedAt);
+        return AddDates(filter, query, b, x => x.CreatedAt, x => x.TransactionDate, x => x.CompletedAt);
     }
 
     private static FilterDefinition<EpOrderDocument> BuildExportFilter(InventoryOrderListQuery query)
@@ -148,21 +148,22 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
         if (!string.IsNullOrWhiteSpace(query.OrderName)) filter &= b.Regex(x => x.OrderName, new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(query.OrderName), "i"));
         if (!string.IsNullOrWhiteSpace(query.UserName)) filter &= b.Regex(x => x.UserName, new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(query.UserName), "i"));
         if (query.ByCompletedDate) filter &= b.Eq(x => x.Status, true); else if (query.Status.HasValue) filter &= b.Eq(x => x.Status, query.Status.Value);
-        return AddDates(filter, query, b, x => x.CreatedAt, x => x.CompletedAt);
+        return AddDates(filter, query, b, x => x.CreatedAt, x => x.TransactionDate, x => x.CompletedAt);
     }
 
     private static FilterDefinition<T> AddDates<T>(FilterDefinition<T> filter, InventoryOrderListQuery query, FilterDefinitionBuilder<T> b,
-        System.Linq.Expressions.Expression<Func<T, DateTime?>> created, System.Linq.Expressions.Expression<Func<T, DateTime?>> completed)
+        System.Linq.Expressions.Expression<Func<T, DateTime?>> created, System.Linq.Expressions.Expression<Func<T, DateTime?>> transaction, System.Linq.Expressions.Expression<Func<T, DateTime?>> completed)
     {
         if (!query.StartDate.HasValue && !query.EndDate.HasValue) return filter;
         DateTime? start = query.StartDate?.UtcDateTime;
         DateTime? end = query.EndDate?.UtcDateTime;
         FilterDefinition<T> createdRange = b.Empty;
+        FilterDefinition<T> transactionRange = b.Empty;
         FilterDefinition<T> completedRange = b.Empty;
-        if (start.HasValue) { createdRange &= b.Gte(created, start.Value); completedRange &= b.Gte(completed, start.Value); }
-        if (end.HasValue) { createdRange &= b.Lte(created, end.Value); completedRange &= b.Lte(completed, end.Value); }
+        if (start.HasValue) { createdRange &= b.Gte(created, start.Value); transactionRange &= b.Gte(transaction, start.Value); completedRange &= b.Gte(completed, start.Value); }
+        if (end.HasValue) { createdRange &= b.Lte(created, end.Value); transactionRange &= b.Lte(transaction, end.Value); completedRange &= b.Lte(completed, end.Value); }
         return query.ByCompletedDate
-            ? filter & b.Or(completedRange, b.And(b.Eq(completed, null), createdRange))
+            ? filter & b.Or(transactionRange, b.And(b.Eq(transaction, null), completedRange), b.And(b.Eq(transaction, null), b.Eq(completed, null), createdRange))
             : filter & createdRange;
     }
 
@@ -180,13 +181,13 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
         };
     }
 
-    private static InventoryOrder Map(IpOrderDocument x) => new(x.Id.ToString(), x.OrderName ?? string.Empty, x.Note ?? string.Empty, x.UserName ?? string.Empty,
+    private static InventoryOrder Map(IpOrderDocument x) => new InventoryOrder(x.Id.ToString(), x.OrderName ?? string.Empty, x.Note ?? string.Empty, x.UserName ?? string.Empty,
         (x.ProductList ?? []).Select(line => new InventoryOrderLine(line.Status ?? false, line.ProductId, line.Price, null, null, line.Unit, ToInt(line.Quantity), ToDouble(line.QuantityRe), line.StockAppliedQuantity, false, line.Note, line.Vat, SubdocumentId: line.Id?.ToString())).ToArray(),
-        (x.Images ?? []).ToArray(), x.Total ?? "0", x.Status ?? false, Offset(x.CompletedAt), Offset(x.CreatedAt), Offset(x.UpdatedAt), x.Version ?? 0, InventoryOrderKind.Import);
+        (x.Images ?? []).ToArray(), x.Total ?? "0", x.Status ?? false, Offset(x.CompletedAt), Offset(x.CreatedAt), Offset(x.UpdatedAt), x.Version ?? 0, InventoryOrderKind.Import) with { TransactionDate = Offset(x.TransactionDate) ?? Offset(x.CreatedAt) };
 
-    private static InventoryOrder Map(EpOrderDocument x) => new(x.Id.ToString(), x.OrderName ?? string.Empty, x.Note ?? string.Empty, x.UserName ?? string.Empty,
+    private static InventoryOrder Map(EpOrderDocument x) => new InventoryOrder(x.Id.ToString(), x.OrderName ?? string.Empty, x.Note ?? string.Empty, x.UserName ?? string.Empty,
         (x.ProductList ?? []).Select(line => new InventoryOrderLine(line.Status ?? false, line.ProductId, line.Price, line.ImportPriceSnapshot, line.ProfitPercent, line.Unit, ToInt(line.Quantity), ToDouble(line.ExportedQuantity), line.StockAppliedQuantity, line.StockUpdateSkipped ?? false, line.Note, line.Vat, SubdocumentId: line.Id?.ToString())).ToArray(),
-        (x.Images ?? []).ToArray(), x.Total ?? "0", x.Status ?? false, Offset(x.CompletedAt), Offset(x.CreatedAt), Offset(x.UpdatedAt), x.Version ?? 0, InventoryOrderKind.Export);
+        (x.Images ?? []).ToArray(), x.Total ?? "0", x.Status ?? false, Offset(x.CompletedAt), Offset(x.CreatedAt), Offset(x.UpdatedAt), x.Version ?? 0, InventoryOrderKind.Export) with { TransactionDate = Offset(x.TransactionDate) ?? Offset(x.CreatedAt) };
 
     private static IpOrderDocument ToImport(InventoryOrder order, IpOrderDocument? current)
     {
@@ -195,7 +196,7 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
         {
             Id = ObjectId.TryParse(order.Id, out ObjectId id) ? id : ObjectId.GenerateNewId(), Version = order.Version, OrderName = order.OrderName, Note = order.Note, UserName = order.UserName,
             ProductList = order.ProductList.Select(x => ToImportLine(x, existing)).ToList(), Images = order.Images.ToList(), Total = order.Total, Status = order.Status,
-            CompletedAt = order.CompletedAt?.UtcDateTime, CreatedAt = order.CreatedAt?.UtcDateTime ?? DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            TransactionDate = order.TransactionDate?.UtcDateTime, CompletedAt = order.CompletedAt?.UtcDateTime, CreatedAt = order.CreatedAt?.UtcDateTime ?? DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
         };
     }
 
@@ -206,7 +207,7 @@ public sealed class MongoInventoryOrderRepository(IMongoDatabaseProvider databas
         {
             Id = ObjectId.TryParse(order.Id, out ObjectId id) ? id : ObjectId.GenerateNewId(), Version = order.Version, OrderName = order.OrderName, Note = order.Note, UserName = order.UserName,
             ProductList = order.ProductList.Select(x => ToExportLine(x, existing)).ToList(), Images = order.Images.ToList(), Total = order.Total, Status = order.Status,
-            CompletedAt = order.CompletedAt?.UtcDateTime, CreatedAt = order.CreatedAt?.UtcDateTime ?? DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            TransactionDate = order.TransactionDate?.UtcDateTime, CompletedAt = order.CompletedAt?.UtcDateTime, CreatedAt = order.CreatedAt?.UtcDateTime ?? DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
         };
     }
 

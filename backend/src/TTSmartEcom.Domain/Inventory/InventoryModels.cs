@@ -37,7 +37,8 @@ public sealed record InventoryOrder(
     DateTimeOffset? CreatedAt,
     DateTimeOffset? UpdatedAt,
     int Version,
-    InventoryOrderKind Kind);
+    InventoryOrderKind Kind,
+    DateTimeOffset? TransactionDate = null);
 
 public sealed record InventoryOrderListQuery(
     int Page = 1,
@@ -81,7 +82,8 @@ public sealed record InventoryOrderLineInput(
     string? Vat,
     bool? SkipStockUpdate = null,
     bool? IsAiScan = null,
-    bool? Status = null);
+    bool? Status = null,
+    bool? QuantityAdjustment = null);
 
 public sealed record InventoryOrderLineUpdateInput(
     string? ProductId,
@@ -95,4 +97,5 @@ public sealed record InventoryOrderLineUpdateInput(
     string? Vat,
     bool? SkipStockUpdate = null,
     bool? IsAiScan = null,
-    bool? Status = null);
+    bool? Status = null,
+    bool? QuantityAdjustment = null);

@@ -11,6 +11,12 @@ public sealed partial class LegacyPrincipalMiddleware(RequestDelegate next, IUse
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
+            if (context.Items.ContainsKey(IdentityItemKey))
+            {
+                await next(context);
+                return;
+            }
+
             string? userId = context.User.FindFirstValue("userId") ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrWhiteSpace(userId))
             {

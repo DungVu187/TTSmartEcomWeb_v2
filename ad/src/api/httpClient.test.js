@@ -4,6 +4,7 @@ import { apiFetch, getAuthFailure, resolveApiUrl } from "./httpClient";
 describe("httpClient", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_API_URL", "https://api.example.com/root/");
+    window.localStorage.clear();
     globalThis.fetch = vi.fn();
   });
 
@@ -62,6 +63,20 @@ describe("httpClient", () => {
     expect(options.headers.get("Content-Type")).toBe("application/json");
     expect(options.headers.get("X-Request-Id")).toBe("request-1");
     expect(options.headers.has("CSRF-Token")).toBe(false);
+  });
+
+  it("adds the selected Company and Branch scope to authenticated API requests", async () => {
+    globalThis.fetch.mockResolvedValue({ ok: true, status: 200 });
+    window.localStorage.setItem("ttsmart-admin-scope", JSON.stringify({
+      companyId: "11111111-1111-1111-1111-111111111111",
+      branchId: "22222222-2222-2222-2222-222222222222",
+    }));
+
+    await apiFetch("/products", { method: "GET" });
+
+    const [, options] = globalThis.fetch.mock.calls[0];
+    expect(options.headers.get("X-Company-Id")).toBe("11111111-1111-1111-1111-111111111111");
+    expect(options.headers.get("X-Branch-Id")).toBe("22222222-2222-2222-2222-222222222222");
   });
 });
 

@@ -118,9 +118,10 @@ const OrderedProducts = () => {
               orderName: order.orderName,
               userName: order.userName,
               quantity: item.quantity,
-              status: item.status,
-              createdAt: order.createdAt,
-              completedAt: order.completedAt,
+               status: item.status,
+               createdAt: order.createdAt,
+               transactionDate: order.transactionDate,
+               completedAt: order.completedAt,
             });
           } else {
             productMap.set(key, {
@@ -132,9 +133,10 @@ const OrderedProducts = () => {
                   orderName: order.orderName,
                   userName: order.userName,
                   quantity: item.quantity,
-                  status: item.status,
-                  createdAt: order.createdAt,
-                  completedAt: order.completedAt,
+                   status: item.status,
+                   createdAt: order.createdAt,
+                   transactionDate: order.transactionDate,
+                   completedAt: order.completedAt,
                 },
               ],
             });
@@ -412,7 +414,8 @@ const OrderedProducts = () => {
                   <TableCell align="center">Số lượng</TableCell>
                   <TableCell align="center">Trạng thái</TableCell>
                   <TableCell align="center">Ngày tạo</TableCell>
-                  <TableCell align="center">Ngày nhập</TableCell>
+                   <TableCell align="center">Nhập thực tế</TableCell>
+                   <TableCell align="center">Xác nhận</TableCell>
                   <TableCell align="center">Hành động</TableCell>
                 </TableRow>
               </TableHead>
@@ -433,6 +436,9 @@ const OrderedProducts = () => {
                     </TableCell>
                     <TableCell align="center">
                       {formatDate(order.createdAt)}
+                    </TableCell>
+                    <TableCell align="center">
+                      {formatDate(order.transactionDate || order.createdAt)}
                     </TableCell>
                     <TableCell align="center">
                       {order.completedAt

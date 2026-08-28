@@ -18,6 +18,7 @@ import logo from "../assets/logo.png";
 import { getAuthFailure } from "../api/httpClient";
 import {
   loginAdmin,
+  clearAdminSessionScope,
   requestAdminPasswordReset,
   resetAdminPassword,
 } from "../api/adminAuthApi";
@@ -54,8 +55,9 @@ export default function SignInPage() {
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  const validatePhone = (phone) => {
-    return /^[0-9]{10,11}$/.test(phone);
+  const validateIdentifier = (identifier) => {
+    const value = identifier.trim();
+    return /^[0-9]{10,11}$/.test(value) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   };
 
   const handleLogin = async (e) => {
@@ -63,9 +65,9 @@ export default function SignInPage() {
     setError("");
     if (isLoading) return;
 
-    if (!validatePhone(phone)) {
-      setError("Số điện thoại phải là chuỗi số từ 10 đến 11 chữ số.");
-      toast.error("Vui lòng nhập số điện thoại hợp lệ!");
+    if (!validateIdentifier(phone)) {
+      setError("Nhập số điện thoại 10–11 chữ số hoặc email hợp lệ.");
+      toast.error("Vui lòng nhập số điện thoại hoặc email hợp lệ!");
       return;
     }
 
@@ -77,6 +79,7 @@ export default function SignInPage() {
 
     setIsLoading(true);
     try {
+      clearAdminSessionScope();
       const response = await loginAdmin({ phone, password });
 
       const data = await response.json();
@@ -369,14 +372,14 @@ export default function SignInPage() {
 
                 <Stack spacing={2}>
                   <FormControl required>
-                    <FormLabel>Số điện thoại</FormLabel>
+                    <FormLabel>Số điện thoại hoặc email</FormLabel>
                     <Input
                       type="text"
                       name="username"
                       autoComplete="username"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
-                      placeholder="Nhập số điện thoại"
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="Nhập số điện thoại hoặc email"
                     />
                   </FormControl>
                   <FormControl required>

@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { getAdminProfile } from "../api/adminAuthApi";
+import { getAdminScope, getAdminScopeChangeEvent } from "../api/adminScope";
 
 const PermissionContext = createContext(null);
 
@@ -33,6 +34,13 @@ export const PermissionProvider = ({ children }) => {
 
   useEffect(() => {
     refreshProfile();
+  }, [refreshProfile]);
+
+  useEffect(() => {
+    const eventName = getAdminScopeChangeEvent();
+    const handleScopeChange = () => refreshProfile();
+    window.addEventListener(eventName, handleScopeChange);
+    return () => window.removeEventListener(eventName, handleScopeChange);
   }, [refreshProfile]);
 
   const role = profile?.role || "";
@@ -85,6 +93,7 @@ export const PermissionProvider = ({ children }) => {
   const value = useMemo(
     () => ({
       profile,
+      scope: getAdminScope(),
       isLoading,
       role,
       permissions,

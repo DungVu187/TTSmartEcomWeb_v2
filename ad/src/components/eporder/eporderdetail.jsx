@@ -82,7 +82,6 @@ import {
   setExportOrderStatus,
   updateExportOrderLine,
   updateExportOrderMetadata,
-  updateExportOrderName,
   updateInventoryOrderHistoryName,
   uploadExportOrderImage,
 } from "../../api/inventoryOrderAdministrationApi";
@@ -119,6 +118,14 @@ const orderMetadataFieldSx = {
   "& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline": {
     borderColor: "#71839A",
   },
+};
+
+const toDateTimeLocalValue = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 const blueOutlinedButtonSx = {
@@ -1682,7 +1689,11 @@ const ExportOrderDetail = () => {
   // Hàm cập nhật tên đơn hàng
   const handleUpdateOrderName = async (newOrderName, newNote) => {
     const updatedOrder = await handleApiResponse(
-      updateExportOrderName(id, { orderName: newOrderName, note: newNote })
+      updateExportOrderMetadata(id, {
+        orderName: newOrderName,
+        note: newNote,
+        transactionDate: order?.transactionDate || order?.createdAt,
+      })
     );
 
     if (updatedOrder) {
@@ -2298,6 +2309,20 @@ const ExportOrderDetail = () => {
                   handleUpdateOrderName(order?.orderName || "", order?.note || "");
                 }
               }}
+            />
+            <TextField
+              label="Ngày xuất thực tế"
+              type="datetime-local"
+              value={toDateTimeLocalValue(order?.transactionDate || order?.createdAt)}
+              onChange={(event) => setOrder((previous) => ({
+                ...previous,
+                transactionDate: event.target.value ? new Date(event.target.value).toISOString() : "",
+              }))}
+              size="small"
+              fullWidth
+              sx={orderMetadataFieldSx}
+              disabled={!canEdit}
+              slotProps={{ inputLabel: { shrink: true } }}
             />
             {canEdit && (
               <Button

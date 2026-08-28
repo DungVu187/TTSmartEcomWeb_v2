@@ -2,9 +2,9 @@
 
 ## Trạng thái
 
-21 collections dưới đây được suy ra từ các khai báo và cách sử dụng model Mongoose trong legacy. V2 hiện có class document/scaffold class-map tương ứng tại `backend/src/TTSmartEcom.Infrastructure.MongoDb/Persistence/Documents`. Fixture BSON tổng hợp và integration MongoDB biệt lập đã bao phủ một số lát cắt được ghi rõ trong bảng; chúng chưa bao phủ đủ 21 collection, mọi field hoặc mọi đường ghi. Không kết nối database production.
+23 collection hiện được suy ra từ các khai báo và cách sử dụng model Mongoose trong legacy sau khi chức năng lốp bổ sung `vehicles` và `tireorders`. V2 có class document/scaffold class-map cho baseline 21 collection cũ nhưng chưa có document/mapping cho hai collection lốp mới. Fixture BSON tổng hợp và integration MongoDB biệt lập mới bao phủ một số lát cắt cũ; chưa có fixture V2 cho `vehicles`/`tireorders`, mọi field hoặc mọi đường ghi. Không kết nối database production.
 
-Profile read-only được chủ dự án cho phép trên MongoDB local `Ecom` ngày 2026-08-14 quan sát 19 collection: bốn collection drinks không tồn tại, trong khi `autologintokens` và `chatmessages` tồn tại ngoài inventory source hiện tại. Thống kê, index vật lý và quyết định migration nằm tại `MONGODB_ECOM_DATA_PROFILE_AND_SQLSERVER_DECISIONS.md`; chênh lệch này không thay đổi yêu cầu tương thích source Đợt 1.
+Profile read-only ngày 2026-08-14 quan sát 19 collection. Profile bổ sung ngày 2026-08-27 quan sát 21 collection/1.670 document vì `vehicles` và `tireorders` đã xuất hiện; bốn collection drinks vẫn không tồn tại, còn `autologintokens` và `chatmessages` vẫn là collection ngoài inventory source hiện tại. Chi tiết lốp nằm tại `MONGODB_ECOM_TIRE_PROFILE_2026-08-27.md`.
 
 | Collection chỉ phát hiện trong snapshot `Ecom` | Quan sát | Quyết định |
 |---|---|---|
@@ -34,6 +34,8 @@ Profile read-only được chủ dự án cho phép trên MongoDB local `Ecom` n
 | `users` | `models/user.js` | auth/profile/cart/order/admin | Ánh xạ document + repository identity/profile/cart; fixture giữ `_id` cart nhúng đã đạt, đường ghi user Mongo rộng còn thiếu |
 | `voicevocabs` | `models/voicevocab.js` | route voice/runtime startup | Ánh xạ document + repository vocabulary; chưa có fixture/đường ghi integration riêng |
 | `zaloconfigs` | `models/zalo.js` | service/settings Zalo | Ánh xạ document + repository settings/token; chưa có fixture persistence hoặc OAuth provider thật |
+| `vehicles` | `models/vehicle.js` | route xe/đơn lốp/vòng đời | 7 document được profile read-only; V2 chưa có document, repository, schema Branch hoặc mapper; `Blocked` |
+| `tireorders` | `models/tireorder.js` | đơn lốp, tồn kho, vòng đời, history | 6 document/7 vehicle entry/4 assignment được profile read-only; V2 chưa có document, repository, schema Branch hoặc mapper; `Blocked` |
 
 ## Bằng chứng mapping bắt buộc
 
@@ -44,7 +46,7 @@ Với mỗi collection, ghi lại chính xác tên field BSON, kiểu dữ liệ
 - `product.documents[]` hiện nhận `_id` từ API, giữ ObjectId hợp lệ khi cập nhật và chỉ sinh ObjectId cho phần tử mới không có `_id`; `_id` sai định dạng bị từ chối. Regression contract/BSON builder đã đạt.
 - Mutation address/order-template dùng compare-and-exchange theo snapshot mảng và `__v` legacy khi có, thử lại khi xung đột; order-template bám `_id` ổn định qua các lần thử để tránh cập nhật nhầm phần tử khi index đổi. Unit test bao phủ xung đột/thử lại và việc không làm mất mutation đồng thời; endpoint Mongo dương tính rộng vẫn còn thiếu.
 - Bản ghi mutex Super Admin có `_id = "__ttsmart_v2_superadmin_mutation_guard"` trong `counters`. Chỉ xóa thủ công sau khi đã chắc chắn không còn owner hoạt động; chưa có runbook/diễn tập xử lý guard mồ côi.
-- Integration hiện chỉ dùng database MongoDB biệt lập và dữ liệu tổng hợp cho các lát cắt đã nêu. Không có bằng chứng kết nối production, coverage đủ 21 collection hoặc mọi đường ghi.
+- Integration hiện chỉ dùng database MongoDB biệt lập và dữ liệu tổng hợp cho các lát cắt đã nêu. Không có bằng chứng kết nối production, coverage đủ 23 collection hoặc mọi đường ghi.
 
 ## Ghi chú baseline SQL Server v1 ngày 2026-08-15
 

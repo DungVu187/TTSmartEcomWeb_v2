@@ -1,5 +1,7 @@
 # Hồ sơ dữ liệu MongoDB `Ecom` và quyết định thiết kế SQL Server
 
+> **Quyết định hiện hành ngày 2026-08-24:** giữ nguyên số liệu profile, nhưng các kết luận ownership không có Company DB hoặc cho phép Product authoritative độc lập theo Branch đã bị thay thế. Đích mới là Platform DB → Company DB dùng chung Product Master → Branch DB chứa giao dịch/tồn kho. Xem `../architecture/SQLSERVER_TARGET_ARCHITECTURE.md`.
+
 > Cập nhật ownership ngày 2026-08-14: chủ dự án xác nhận `[TTSmart]` là database bán hàng đầy đủ của TTSmart. Các số liệu profile và phát hiện chất lượng dữ liệu trong tài liệu này vẫn có hiệu lực, nhưng kết luận cũ đặt Product/Customer vào `[ttsmart.com.vn]` và chứng từ ra database chi nhánh đã bị thay thế. Thiết kế hiện hành nằm tại `TTSMART_CODE_AND_DATA_DISCOVERY.md` và `SQLSERVER_TTSMART_SCHEMA_DESIGN.md`.
 
 ## 1. Phạm vi và an toàn dữ liệu
@@ -109,7 +111,9 @@ Kết luận: Product Master và customer identity đang được dùng chung tr
 - `autologintokens` rỗng và không có consumer source hiện tại; không cần tạo bảng SQL từ collection này.
 - Bốn collection đồ uống không tồn tại trong snapshot và router không được mount; không tạo DDL.
 
-## 4. Kiến trúc SQL Server được khuyến nghị
+## 4. Phương án kiến trúc lịch sử ngày 2026-08-14
+
+Toàn bộ mục 4 dưới đây được giữ để truy vết quá trình ra quyết định, không còn là kiến trúc được khuyến nghị sau ngày 2026-08-24.
 
 ```text
 [ttsmart.com.vn]
@@ -133,11 +137,11 @@ Kết luận: Product Master và customer identity đang được dùng chung tr
 └── outbox/inbox/idempotency
 ```
 
-### 4.1 Quyết định không tạo `CompanyDb`
+### 4.1 Quyết định lịch sử không tạo `CompanyDb` — đã bị thay thế
 
-Chủ dự án chốt ba loại database vật lý: `[ttsmart.com.vn]` là database tổng, `[TTSmart]` là database riêng và `[{BranchCode}_online]` là các database chi nhánh cùng template. Vì không có CompanyDb, `[ttsmart.com.vn]` sở hữu Product/Customer master dùng chung theo `CompanyId`; database chi nhánh giữ projection cục bộ để transaction không query xuyên database.
+Ngày 2026-08-14, chủ dự án từng chốt ba loại database vật lý: `[ttsmart.com.vn]` là database tổng, `[TTSmart]` là database riêng và `[{BranchCode}_online]` là các database chi nhánh cùng template. Quyết định này đã bị thay thế ngày 2026-08-24 bởi Company DB riêng sở hữu Product Master dùng chung và Branch DB sở hữu giao dịch/tồn kho.
 
-Quy tắc ownership:
+Quy tắc ownership lịch sử:
 
 - `[ttsmart.com.vn]` sở hữu Company/Branch, identity, Product/Variant/Customer master, feature/quota và database registry;
 - `[TTSmart]` sở hữu Station/storefront/provider/module riêng TTSmart;
@@ -237,9 +241,9 @@ Index tối thiểu cần thiết:
 11. Không migrate `autologintokens`; `chatmessages` chỉ xử lý sau quyết định retention; không tạo bảng drinks.
 12. Đối soát count, tiền, trạng thái, line, tồn mở sổ, orphan, media và permission trước pilot cutover.
 
-## 7. Quyết định đề xuất để owner chốt
+## 7. Đề xuất lịch sử để owner chốt — đã bị thay thế một phần
 
-Dựa trên dữ liệu quan sát, đề xuất chốt mặc định:
+Dựa trên dữ liệu quan sát tại thời điểm 2026-08-14, tài liệu từng đề xuất các mặc định dưới đây. Mục 1–2 không còn authoritative sau quyết định Company DB ngày 2026-08-24; các nhận định dữ liệu còn lại vẫn cần được đánh giá theo mapping field-level:
 
 1. Product Master dùng chung trong `[ttsmart.com.vn]` theo `CompanyId`; Branch giữ giá override, projection và tồn kho.
 2. Customer Master dùng chung trong `[ttsmart.com.vn]` theo `CompanyId`; Branch giữ profile nghiệp vụ riêng nếu cần.
@@ -254,3 +258,9 @@ Các quyết định còn cần nghiệp vụ xác nhận là cách tính `quant
 ## 8. Ranh giới giai đoạn
 
 Profile và kiến trúc này chuẩn bị cho Đợt 2. Không đưa SQL Server, EF Core, migration DDL hay chức năng multi-company vào runtime Đợt 1 cho tới khi có chỉ dẫn thay đổi phạm vi riêng và các quyết định ở trên được chốt.
+
+## 9. Profile bổ sung chức năng lốp ngày 2026-08-27
+
+Snapshot local đã thay đổi sau khi legacy bổ sung hai model mới. Lượt đọc an toàn mới quan sát 21 collection/1.670 document, trong đó `vehicles=7` và `tireorders=6`. Các reference hiện tại và invariant đơn–vị trí–tổng–tồn đều khớp, nhưng có hai Vehicle thiếu `wheelCount`, deletion field missing ở một số đơn và nhiều history/activity trỏ tới đơn đã từng bị xóa khỏi collection.
+
+Hai collection lốp chưa có Branch schema/mapper/dry-run/reconcile trong V2 nên vẫn `Blocked`. Hồ sơ đầy đủ, không chứa PII/ID, nằm tại `MONGODB_ECOM_TIRE_PROFILE_2026-08-27.md`.

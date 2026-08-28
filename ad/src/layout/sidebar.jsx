@@ -11,6 +11,7 @@ import {
   Collapse,
   useMediaQuery,
   IconButton,
+  Button,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -40,7 +41,9 @@ import { useOrderContext } from "../context/ordercontext";
 import { usePermissions } from "../context/permissioncontext";
 import { io } from "socket.io-client";
 import { logoutAdmin } from "../api/adminAuthApi";
+import { clearAdminScope } from "../api/adminScope";
 import { getProcessingSalesOrderCount } from "../api/salesOrderManagementApi";
+import WorkspaceSelector from "../components/workspaceSelector";
 
 const apiUrl = import.meta.env.VITE_API_URL;
 
@@ -65,17 +68,21 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const [openItems, setOpenItems] = useState({});
   const [processingCount, setProcessingCount] = useState(0);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
 
   const {
     profile,
     isAdminOrSuperadmin,
     can,
+    scope,
   } = usePermissions();
 
   const userName = profile?.name || "";
   const userPhone = profile?.phone || "";
 
   const canViewOrders = can("order.view");
+  const activeCompany = profile?.companyMemberships?.find((company) => company.companyId === scope.companyId);
+  const activeBranch = profile?.branchMemberships?.find((branch) => branch.branchId === scope.branchId);
 
   useEffect(() => {
     if (!canViewOrders) {
@@ -155,6 +162,7 @@ const Sidebar = () => {
     try {
       const response = await logoutAdmin();
       if (response.ok) {
+        clearAdminScope();
         document.cookie =
           "authToken=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
         toast.success("Đăng xuất thành công!");
@@ -340,6 +348,39 @@ const Sidebar = () => {
             Xin chào, {userName || userPhone}
           </Typography>
         )}
+        {profile?.isControlPlaneIdentity && (
+          <Button
+            onClick={() => setWorkspaceOpen(true)}
+            size="small"
+            fullWidth
+            sx={{
+              mt: 1.25,
+              justifyContent: "space-between",
+              backgroundColor: "#1e293b",
+              color: "#ffffff",
+              border: "1px solid #334155",
+              borderRadius: "8px",
+              textTransform: "none",
+              fontSize: 13,
+              fontWeight: 600,
+              px: 1.5,
+              py: 0.8,
+              boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.3)",
+              "&:hover": {
+                backgroundColor: "#334155",
+                borderColor: "#64748b",
+                color: "#ffffff",
+              },
+            }}
+          >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {profile?.isPlatformSuperAdmin && !scope.companyId
+                ? "Quản trị hệ thống"
+                : activeBranch?.name || activeCompany?.name || "Chọn không gian"}
+            </span>
+            <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 6, flexShrink: 0 }}>▼</span>
+          </Button>
+        )}
       </Toolbar>
       <List>
         {menuItems.map((item, index) => {
@@ -476,6 +517,13 @@ const Sidebar = () => {
       >
         {drawerContent}
       </Drawer>
+      {profile?.isControlPlaneIdentity && (
+        <WorkspaceSelector
+          profile={profile}
+          open={workspaceOpen}
+          onClose={() => setWorkspaceOpen(false)}
+        />
+      )}
     </>
   );
 };

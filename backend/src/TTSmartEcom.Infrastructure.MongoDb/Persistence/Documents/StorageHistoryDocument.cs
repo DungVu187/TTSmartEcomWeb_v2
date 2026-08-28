@@ -41,6 +41,19 @@ public sealed class StorageHistoryDocument : LegacyMongoDocument
     [BsonIgnoreIfNull]
     public string? Source { get; set; }
 
+    [BsonElement("transactionDate")]
+    [BsonIgnoreIfNull]
+    [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
+    public DateTime? TransactionDate { get; set; }
+
+    [BsonElement("quantityBefore")]
+    [BsonIgnoreIfNull]
+    public double? QuantityBefore { get; set; }
+
+    [BsonElement("quantityAfter")]
+    [BsonIgnoreIfNull]
+    public double? QuantityAfter { get; set; }
+
     [BsonElement("createdAt")]
     [BsonIgnoreIfNull]
     [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]

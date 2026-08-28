@@ -1,5 +1,7 @@
 # Phương án schema SQL Server cho database `[TTSmart]`
 
+> **Trạng thái lịch sử:** phương án `[TTSmart]` là database bán hàng đầy đủ và làm template Branch đã bị thay thế ngày 2026-08-24. Đích mới coi `[TTSmart]` là Company DB của TTSmart; Product Master/dữ liệu dùng chung ở đây, còn giao dịch và tồn kho riêng nằm tại Branch DB. Không áp dụng nguyên trạng thiết kế này để tạo schema mới. Xem `../architecture/SQLSERVER_TARGET_ARCHITECTURE.md`.
+
 ## 1. Mục tiêu
 
 `[TTSmart]` là database bán hàng đầy đủ của công ty TTSmart. Schema phải chạy được toàn bộ nghiệp vụ quan sát được của web cũ, nhận được toàn bộ dữ liệu hiện có trong MongoDB `Ecom` và làm nền cho template database chi nhánh sau này.

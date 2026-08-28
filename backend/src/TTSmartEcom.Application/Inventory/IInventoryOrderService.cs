@@ -8,7 +8,9 @@ public interface IInventoryOrderService
     Task<InventoryOrderProductSummaryResult> ListProductsAsync(InventoryOrderKind kind, int page, CancellationToken cancellationToken);
     Task<InventoryOrder?> GetAsync(InventoryOrderKind kind, string id, CancellationToken cancellationToken);
     Task<InventoryOrder> CreateAsync(InventoryOrderKind kind, string userName, string? orderName, string? note, IReadOnlyList<InventoryOrderLineInput> lines, CancellationToken cancellationToken);
+    Task<InventoryOrder> CreateAsync(InventoryOrderKind kind, string userName, string? orderName, string? note, DateTimeOffset? transactionDate, IReadOnlyList<InventoryOrderLineInput> lines, CancellationToken cancellationToken) => CreateAsync(kind, userName, orderName, note, lines, cancellationToken);
     Task<InventoryOrder> UpdateMetadataAsync(InventoryOrderKind kind, string id, string? orderName, string? note, IReadOnlyList<string>? images, CancellationToken cancellationToken);
+    Task<InventoryOrder> UpdateMetadataAsync(InventoryOrderKind kind, string id, string? orderName, string? note, IReadOnlyList<string>? images, bool updateTransactionDate, DateTimeOffset? transactionDate, CancellationToken cancellationToken) => UpdateMetadataAsync(kind, id, orderName, note, images, cancellationToken);
     Task<InventoryOrder> UpdateNameAsync(InventoryOrderKind kind, string id, string? orderName, string? note, CancellationToken cancellationToken);
     Task<InventoryOrder> SetStatusAsync(InventoryOrderKind kind, string id, bool status, CancellationToken cancellationToken);
     Task<InventoryOrder> SetLineStatusAsync(InventoryOrderKind kind, string id, int index, bool status, CancellationToken cancellationToken);

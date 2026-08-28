@@ -1,5 +1,7 @@
 # Triển khai SQL Server baseline v1
 
+> **Trạng thái sau quyết định kiến trúc ngày 2026-08-24:** tài liệu này là bằng chứng kiểm thử của baseline hai tầng đã chạy, không phải thiết kế đích hiện hành. `Operational v1` chưa được tách thành Company schema và Branch schema; không dùng các tổng số dưới đây để tuyên bố kiến trúc Platform/Company/Branch đã được triển khai. Xem `../architecture/SQLSERVER_TARGET_ARCHITECTURE.md`.
+
 ## Phạm vi đã chạy
 
 Ngày 2026-08-15, hai database test local được cấp phép đã được recreate và xác minh trên `DESKTOP-5O6VV3J\SQLEXPRESS` bằng Windows Authentication:
@@ -41,3 +43,9 @@ Không seed hay copy MongoDB/file thật. Test dữ liệu nghiệp vụ đã ro
 - Chưa chạy migration MongoDB, manifest/checksum file, provider thật, tải đồng thời hay cutover.
 - RCSI cố ý giữ OFF vì chưa có kiểm thử transaction tồn kho; đây là quyết định test baseline, không phải cấu hình cho database prototype hiện hữu.
 - Baseline Operational là template schema; chưa tạo database branch thực tế hoặc triển khai service provisioning/runtime SQL.
+
+## Company v1 — chưa xác minh trên SQL Server (2026-08-24)
+
+Đã thêm family `company` tách biệt, có runner guard literal chỉ chấp nhận `TTSmart_Company_V1_Test`, migration SHA-256, application lock, transaction, `XACT_ABORT`, phát hiện drift và chạy lại idempotent. Schema gồm hệ thống/migration, Product Master dùng GUID + `PublicId char(24)` lowercase, catalog normalized/unique, file metadata không BLOB, settings allowlist và audit append-only.
+
+Ngày 2026-08-24 đã chạy `Test-SqlServerCompanyV1Baseline.ps1` trên `DESKTOP-5O6VV3J\SQLEXPRESS` bằng Windows Authentication: first-run, rerun, checksum mismatch, concurrent runner, fingerprint, constraint rollback, `DBCC CHECKCONSTRAINTS` theo từng bảng, `DBCC CHECKDB ... WITH PHYSICAL_ONLY` và kiểm tra bảng cấm đều đạt. SQL Server Express phát sinh lỗi nội bộ DBCC khi check expression có `COLLATE ... BIN2` trên sáu bảng catalog/migration; script vẫn chạy DBCC cho các bảng còn lại, còn sáu constraint đó được thực thi bởi `TestCompanyConstraints.sql` với transaction rollback. Không có DDL/DML nào được chủ động thực thi ngoài `TTSmart_Company_V1_Test`.

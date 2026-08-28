@@ -1,3 +1,5 @@
+import { addScopeHeaders } from "./adminScope";
+
 const getApiBaseUrl = () => (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
 export const resolveApiUrl = (path) => {
@@ -18,6 +20,7 @@ export const getAuthFailure = (response) => {
 export const apiFetch = async (path, options = {}) => {
   const { json, headers: providedHeaders, ...requestOptions } = options;
   const headers = new Headers(providedHeaders);
+  addScopeHeaders(headers);
   let body = requestOptions.body;
 
   if (json !== undefined) {

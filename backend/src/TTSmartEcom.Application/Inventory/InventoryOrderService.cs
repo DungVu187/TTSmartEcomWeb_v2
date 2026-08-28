@@ -42,7 +42,10 @@ public sealed partial class InventoryOrderService(
         return await orders.FindAsync(kind, id, cancellationToken);
     }
 
-    public async Task<InventoryOrder> CreateAsync(InventoryOrderKind kind, string userName, string? orderName, string? note, IReadOnlyList<InventoryOrderLineInput> lines, CancellationToken cancellationToken)
+    public Task<InventoryOrder> CreateAsync(InventoryOrderKind kind, string userName, string? orderName, string? note, IReadOnlyList<InventoryOrderLineInput> lines, CancellationToken cancellationToken) =>
+        CreateAsync(kind, userName, orderName, note, null, lines, cancellationToken);
+
+    public async Task<InventoryOrder> CreateAsync(InventoryOrderKind kind, string userName, string? orderName, string? note, DateTimeOffset? transactionDate, IReadOnlyList<InventoryOrderLineInput> lines, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(userName)) userName = "Hệ thống";
         if (lines.Count > 500) throw Error(400, "productList phải là một mảng hợp lệ.");
@@ -59,15 +62,29 @@ public sealed partial class InventoryOrderService(
                 cancellationToken) with { Status = false };
         }
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        InventoryOrder order = new(string.Empty, Limit(orderName, 200), Limit(note, 2_000), Limit(userName, 160), normalized, [], Total(normalized), false, null, now, now, 0, kind);
+        InventoryOrder order = new(string.Empty, Limit(orderName, 200), Limit(note, 2_000), Limit(userName, 160), normalized, [], Total(normalized), false, null, now, now, 0, kind, transactionDate ?? now);
         return await orders.InsertAsync(order, cancellationToken);
     }
 
-    public async Task<InventoryOrder> UpdateMetadataAsync(InventoryOrderKind kind, string id, string? orderName, string? note, IReadOnlyList<string>? images, CancellationToken cancellationToken)
+    public Task<InventoryOrder> UpdateMetadataAsync(InventoryOrderKind kind, string id, string? orderName, string? note, IReadOnlyList<string>? images, CancellationToken cancellationToken) =>
+        UpdateMetadataAsync(kind, id, orderName, note, images, false, null, cancellationToken);
+
+    public async Task<InventoryOrder> UpdateMetadataAsync(InventoryOrderKind kind, string id, string? orderName, string? note, IReadOnlyList<string>? images, bool updateTransactionDate, DateTimeOffset? transactionDate, CancellationToken cancellationToken)
     {
         InventoryOrder order = await RequireAsync(kind, id, cancellationToken);
         if (images is not null && (images.Count > 20 || images.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 500))) throw Error(400, "Danh sách ảnh không hợp lệ");
-        return await SaveAsync(order with { OrderName = orderName is null ? order.OrderName : Limit(orderName, 200), Note = note is null ? order.Note : Limit(note, 2_000), Images = images?.ToArray() ?? order.Images }, cancellationToken);
+        InventoryOrder saved = await SaveAsync(order with
+        {
+            OrderName = orderName is null ? order.OrderName : Limit(orderName, 200),
+            Note = note is null ? order.Note : Limit(note, 2_000),
+            Images = images?.ToArray() ?? order.Images,
+            TransactionDate = updateTransactionDate ? transactionDate : order.TransactionDate,
+        }, cancellationToken);
+        if (updateTransactionDate && transactionDate.HasValue)
+        {
+            await storageHistory.UpdateTransactionDateAsync(saved.Id, transactionDate.Value, cancellationToken);
+        }
+        return saved;
     }
 
     public Task<InventoryOrder> UpdateNameAsync(InventoryOrderKind kind, string id, string? orderName, string? note, CancellationToken cancellationToken) =>
@@ -255,7 +272,7 @@ public sealed partial class InventoryOrderService(
         if (adjustment is not null)
         {
             await AppendHistoryBestEffortAsync(
-                [ManualHistoryEntry(kind, order, replacement, product!, adjustment.QuantityInStorageDelta, actorName, isUpdate: true, line.IsAiScan == true)],
+                [ManualHistoryEntry(kind, order, replacement, product!, adjustment.QuantityInStorageDelta, actorName, isUpdate: true, line.IsAiScan == true, line.QuantityAdjustment == true, current.ProgressQuantity, targetProgress)],
                 cancellationToken);
         }
         return saved;
@@ -489,7 +506,10 @@ public sealed partial class InventoryOrderService(
         double quantity,
         string? actorName,
         bool isUpdate,
-        bool isAiScan)
+        bool isAiScan,
+        bool isQuantityAdjustment = false,
+        double? quantityBefore = null,
+        double? quantityAfter = null)
     {
         string note = kind switch
         {
@@ -502,7 +522,7 @@ public sealed partial class InventoryOrderService(
             InventoryOrderKind.Export when quantity < 0 => "Xuất kho (cập nhật đơn xuất)",
             _ => "Hoàn kho (cập nhật đơn xuất)",
         };
-        return new StorageHistoryWriteEntry(
+        StorageHistoryWriteEntry entry = new(
             line.ProductId!,
             product.Name ?? line.Name ?? string.Empty,
             quantity,
@@ -511,7 +531,17 @@ public sealed partial class InventoryOrderService(
             order.OrderName,
             note,
             isAiScan,
-            isAiScan ? null : "order_line_manual");
+            isAiScan ? null : "order_line_manual",
+            order.TransactionDate);
+        return kind == InventoryOrderKind.Import && isQuantityAdjustment
+            ? entry with
+            {
+                Note = $"Sửa số lượng nhập: {quantityBefore} → {quantityAfter}",
+                Source = "import_quantity_adjustment",
+                QuantityBefore = quantityBefore,
+                QuantityAfter = quantityAfter,
+            }
+            : entry;
     }
 
     private static (string Price, string ImportPrice, double Profit) ResolveNewExportPricing(
@@ -603,7 +633,8 @@ public sealed partial class InventoryOrderService(
             kind == InventoryOrderKind.Import
                 ? "Nhập kho (đơn nhập hoàn thành)"
                 : "Xuất kho (đơn xuất hoàn thành)",
-            Source: source);
+            Source: source,
+            TransactionDate: order.TransactionDate);
 
     private async Task<InventoryOrder> RequireAsync(InventoryOrderKind kind, string id, CancellationToken ct) => await GetAsync(kind, id, ct) ?? throw Error(404, "Order not found");
     private async Task<InventoryOrder> SaveAsync(InventoryOrder order, CancellationToken ct) => await orders.UpdateAsync(order, order.Version, ct) ?? throw Error(409, "Đơn vừa được thay đổi bởi thao tác khác, vui lòng tải lại.");

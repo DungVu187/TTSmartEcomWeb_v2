@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using TTSmartEcom.Application.Abstractions.Authentication;
+using TTSmartEcom.Application.Abstractions.Security;
 
 namespace TTSmartEcom.Api.Realtime;
 
@@ -35,6 +36,22 @@ internal sealed class SocketIoAuthenticator(IServiceScopeFactory scopeFactory)
         }
 
         await using AsyncServiceScope scope = scopeFactory.CreateAsyncScope();
+        if (Guid.TryParse(userId, out Guid controlPlaneUserId)
+            && scope.ServiceProvider.GetService<IControlPlaneIdentityReader>() is { } controlPlaneReader)
+        {
+            var controlPlaneContext = await controlPlaneReader.FindContextByIdAsync(
+                controlPlaneUserId,
+                cancellationToken);
+            if (controlPlaneContext is { IsAuthenticated: true, IsControlPlaneIdentity: true, IsPlatformSuperAdmin: true })
+            {
+                return new SocketIoAuthenticationState(
+                    controlPlaneContext.UserId?.ToString() ?? userId,
+                    "superadmin",
+                    fingerprint,
+                    true);
+            }
+        }
+
         IUserIdentityReader identityReader = scope.ServiceProvider.GetRequiredService<IUserIdentityReader>();
         UserIdentitySnapshot? identity = await identityReader.FindByIdAsync(userId, cancellationToken);
         bool authorized = identity is not null

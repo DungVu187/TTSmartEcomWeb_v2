@@ -28,6 +28,10 @@ public sealed class IpOrderDocument : LegacyMongoDocument
     [BsonElement("status")]
     public bool? Status { get; set; } = false;
 
+    [BsonElement("transactionDate")]
+    [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
+    public DateTime? TransactionDate { get; set; }
+
     [BsonElement("completedAt")]
     [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
     public DateTime? CompletedAt { get; set; }

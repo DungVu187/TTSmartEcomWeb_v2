@@ -116,3 +116,93 @@ Target repository đang ở `main` với origin `https://github.com/DungVu187/TT
 - Phạm vi chỉ đọc: ba thư mục upload `be\upload\images`, `be\upload\documents` và `be\upload\invoices`, cùng hai bản sao upload đã xác định. Chỉ tính số lượng, dung lượng và checksum tổng hợp; không đưa tên file, nội dung file, PII, secret hoặc credential vào tài liệu/log.
 - Sau khảo sát: branch `TTSmartEcom_Deploy`, commit `c836c8122e5d0e28628235b8e0f44c1c718efb91`, `git status --short` vẫn có 58 entry, fingerprint SHA-256 vẫn là `307dc6b214efa163c1d87cd461549530e1bd7f63b7cc8746c5963a7b89e1749d`.
 - Không có file nào trong `D:\TTSmartEcomWeb` bị sửa, di chuyển hoặc xóa bởi khảo sát/copy migration.
+
+## Đối chiếu cập nhật legacy ngày 2026-08-21
+
+### Git legacy trước khảo sát
+
+- Branch: `TTSmartEcom_Deploy`.
+- Commit: `f33bd76af084c25e22ab04d84a36c132a0ea5062` (`migrate storefront from CRA to Vite`).
+- `git status --short`: 23 entry: 19 file đã sửa ở admin/backend, 3 file untracked cho xử lý `transactionDate`, và thư mục untracked `fe/fe/`.
+- Phạm vi chỉ đọc: metadata Git, diff commit kể từ baseline `c836c8122e5d0e28628235b8e0f44c1c718efb91`, các diff working-tree liên quan IpOrder/EpOrder/StorageHistory, và frontend Vite. Không đọc `.env`, secret, upload, log, dump, backup hay dữ liệu database; không sửa worktree legacy.
+
+### Phát hiện có bằng chứng
+
+- Commit `f33bd76` chuyển storefront khách hàng từ CRA sang Vite, đổi build output `fe/build` thành `fe/dist`, dùng `import.meta.env.VITE_BACK_END`, thêm proxy `/api`, và backend legacy chấp nhận cả route không prefix lẫn `/api`. V2 đã có storefront Vite cùng `package.json`, `src/App.jsx`, `src/main.jsx` và `src/api/httpClient.js` tương ứng; đây không phải lý do để chuyển JSX sang TSX.
+- Working tree legacy bổ sung `transactionDate` cho `iporders` và `eporders`; payload `POST /iporders/orders`, `POST /eporders/orders`, `PUT /iporders/orders/:id` và `PUT /eporders/orders/:id` chấp nhận trường này, reject giá trị không parse được với 400, và response/list sử dụng ngày này thay cho `completedAt` khi lọc `byCompletedDate=true`.
+- Các `storagehistories` sinh từ thao tác import/export mang `transactionDate` từ header đơn. Khi đổi ngày header, lịch sử cùng `orderId` được cập nhật. Query lịch sử chính chuyển lọc/sort ngày sang `transactionDate`, nhưng dữ liệu cũ thiếu/null vẫn fallback `createdAt`.
+- Sửa trực tiếp `quantityRe` của dòng nhập với `quantityAdjustment=true` sinh event nguồn `import_quantity_adjustment`, note chứa before/after, giữ cả thay đổi có delta âm trong filter chiều nhập. Model `StorageHistory` bổ sung `quantityBefore`, `quantityAfter` và source mới.
+- `fe/fe/` untracked có 100 file, cùng danh sách với `D:\TTSmartEcomWeb_v2\fe` nhưng khác nội dung ở 14 file. Đây là bản sao chưa được quản lý trong legacy, không phải nguồn thay thế có thể tự động nhập vào V2.
+
+### Git legacy sau khảo sát
+
+- Branch và commit không đổi: `TTSmartEcom_Deploy` / `f33bd76af084c25e22ab04d84a36c132a0ea5062`.
+- `git status --short` vẫn đúng 23 entry như trước khảo sát.
+- Khảo sát không làm thay đổi file nào trong `D:\TTSmartEcomWeb`.
+
+### Git legacy sau khảo sát route ngày 2026-08-21
+
+- Trước và sau khảo sát: branch `TTSmartEcom_Deploy`, commit `f33bd76af084c25e22ab04d84a36c132a0ea5062`.
+- `git status --short` trước/sau đều có 22 entry, fingerprint SHA-256 `46af965c65e33c5b08f085ea13508b8ae758df2b8e2ab2091b3e0985397dcdbd`.
+- Phạm vi chỉ đọc component Đơn nhập/Đơn xuất và các field `createdAt`, `transactionDate`, `completedAt`; worktree legacy không bị chỉnh sửa.
+
+## Đối chiếu audit Đợt 2 ngày 2026-08-24
+
+- Trước khảo sát: branch `TTSmartEcom_Deploy`, commit `f33bd76af084c25e22ab04d84a36c132a0ea5062`; `git status --short` có 22 entry với fingerprint SHA-256 `46af965c65e33c5b08f085ea13508b8ae758df2b8e2ab2091b3e0985397dcdbd`.
+- Phạm vi chỉ đọc: model và validation IpOrder/EpOrder để xác nhận kiểu `quantity`, `quantityRe`, `quantityEx`, `stockAppliedQuantity` và hành vi `transactionDate`. Không đọc `.env`, secret, upload, log, dump, backup hoặc dữ liệu MongoDB; không chạy server, test, seed hay migration trong legacy.
+- Kết quả: `quantity` của dòng nhập/xuất được validation là số nguyên; tiến độ nhập cho phép số hữu hạn không âm, còn tiến độ xuất được validation là số nguyên. Đây là bằng chứng contract cho việc domain hiện giữ `quantity` dạng số nguyên, nhưng không cho phép adapter SQL đổi aggregate `decimal(19,6)` sang `double` mà không có kiểm thử biên độ chính xác.
+- Sau khảo sát: branch, commit, số entry và fingerprint không đổi. Không có file nào trong `D:\TTSmartEcomWeb` bị sửa bởi lượt audit.
+
+## Đối chiếu Phase 3B ngày 2026-08-24
+
+- Trước và sau lượt làm việc chỉ đọc phục vụ Phase 3B: branch `TTSmartEcom_Deploy`, commit `f33bd76af084c25e22ab04d84a36c132a0ea5062`.
+- `git status --short` có cùng 22 entry trước/sau, gồm các thay đổi inventory order hiện hữu và ba file untracked liên quan ngày giao dịch.
+- Không khảo sát hay sửa source/data legacy để suy ra Company schema; mọi DDL/test Phase 3B chỉ nằm tại V2 và database test được cấp phép.
+## Khảo sát chức năng lốp V1 ngày 2026-08-27
+
+### Git legacy trước khảo sát
+
+- Branch: `TTSmartEcom_Deploy`.
+- Commit: `73b6967d65e1ca2ac32e9cf7484772e70c51c140`.
+- `git status --short`: sạch, không có entry.
+- Phạm vi chỉ đọc: source tại `D:\TTSmartEcomWeb` liên quan đến chức năng lốp; không đọc `.env`, secret, upload, log, dump, backup hoặc dữ liệu production; không chạy server, build, test, database, seed hay migration và không sửa worktree legacy.
+
+### Phát hiện có bằng chứng
+
+- Chức năng được đưa vào qua hai commit ngày 2026-08-27: `e37dc2ad64e548c8a5e57e74a111347d4ab1e031` (`feat: add tire order management`) và `73b6967d65e1ca2ac32e9cf7484772e70c51c140` (`feat: enhance tire and vehicle lifecycle management`). So với commit `f33bd76af084c25e22ab04d84a36c132a0ea5062`, lát cắt này thêm model `Vehicle`, `TireOrder`, route/controller/service chuyên biệt, giao diện admin, permission và test; đồng thời mở rộng `StorageHistory`, bảo vệ Product/Variant đang được đơn lốp tham chiếu và bổ sung `transactionDate` cho đơn nhập/xuất.
+- Backend mount 25 handler thuộc ba nhóm: 5 handler `/vehicles`, 18 handler `/tire-orders` và 2 handler `/tire-lifecycles`. Middleware tương thích hiện hữu tiếp tục cho phép cả URL không prefix và URL có `/api`, tương ứng 50 dạng method/URL. Tất cả route đều dùng xác thực admin/staff và permission; `tireorder` có `view/create/edit/delete`, còn `tirelifecycle` có permission `view` riêng.
+- `Vehicle` quản lý biển số chuẩn hóa/duy nhất, tên xe, ghi chú, trạng thái hoạt động, loại xe 10 hoặc 12 bánh, timestamp và optimistic concurrency. Xóa xe là xóa mềm qua `isActive = false`; test cho phép tạo xe mới dùng lại biển số của xe đã ngừng và chặn đưa xe không hoạt động vào đơn mới.
+- `TireOrder` lưu header đơn, ngày giao dịch, trạng thái `processing/completed`, xóa mềm, danh sách xe nhúng và từng lốp gán theo vị trí. Mỗi assignment giữ tham chiếu Product/Variant cùng snapshot mã, tên, thương hiệu, giá xuất, thuộc tính sản phẩm/variant, ngày thay, thời điểm lốp cũ ngưng hoạt động, ghi chú và trạng thái đã áp dụng tồn. Model tự tính tổng xe, tổng lốp, tổng giá xuất và số lốp đã áp dụng tồn.
+- Sơ đồ vị trí được khóa bằng identifier ổn định: xe 10 bánh có 10 vị trí, xe 12 bánh có thêm hai vị trí cầu trước thứ hai. Model/service chặn trùng xe trong một đơn, trùng vị trí, vị trí ngoài sơ đồ, số lượng không khớp số vị trí và vượt sức chứa. Chỉ Product có phân loại chính xác `Lốp xe` được tìm/chọn; Product hoặc Variant đã được đơn lốp tham chiếu bị chặn xóa.
+- Luồng đơn hỗ trợ tạo/sửa metadata, thêm/xóa xe, thêm/sửa/xóa lốp, di chuyển vị trí, xác nhận thay thế lốp đang chiếm vị trí, hoàn thành, hủy hoàn thành, xóa mềm và xem lịch sử theo xe trong đơn. Mutation dùng `expectedVersion`/Mongoose optimistic concurrency và trả `409 VERSION_CONFLICT` khi dữ liệu đã đổi.
+- Hoàn thành đơn xác minh lại Product/Variant và mốc thời gian vòng đời, gom lốp theo xe + Product + Variant, trừ đồng thời `quantityForSale` và `quantityInStorage`, ghi `StorageHistory` có `inventoryOperationId`, rồi khóa trạng thái đơn. Nếu bước sau thất bại, code xóa lịch sử operation và bù tồn; hủy hoàn thành làm chiều ngược lại. Xóa mềm đơn đã hoàn thành cố ý không hoàn tồn và vẫn giữ dữ liệu để tái dựng lịch sử lốp.
+- Vòng đời lốp không có collection riêng. Service đọc toàn bộ đơn `completed`, nhóm theo `vehicleId + slotId`, sắp theo ngày lắp và suy ra `active/ended`, ngày kết thúc, đơn lắp và đơn thay thế. API hỗ trợ lọc xe/biển số, mã/tên lốp, loại xe, số vị trí, trạng thái và khoảng ngày; trang chi tiết trả toàn bộ chuỗi tại một vị trí. Đơn xóa mềm vẫn tham gia chuỗi và được đánh dấu `installOrderDeleted`/`replacementOrderDeleted`.
+- Admin có ba route `/tire-orders`, `/tire-orders/:id`, `/tire-lifecycles`; sidebar gom dưới “Quản lý phụ tùng xe”. Giao diện gồm danh sách/lọc/phân trang đơn, quản lý xe ngay trong chi tiết, sơ đồ chassis tương tác 10/12 bánh, chọn nhiều vị trí, cảnh báo lốp cũ đang hoạt động, ngày thay/ngưng hoạt động, trừ/hoàn tồn và bảng/timeline vòng đời có liên kết tới đơn liên quan. Storefront khách hàng không có consumer của domain này.
+- Bằng chứng test gồm `tire_slots.test.js`, `tireorder_model.test.js`, `tireorder_integration.test.js` và permission catalog test. Integration test bao phủ xóa mềm xe/đơn, quyền vòng đời riêng, lọc đúng loại `Lốp xe`, trừ/hoàn tồn, layout 10/12 bánh, lịch sử nhiều lần thay và liên kết đơn đã xóa. Không chạy test trong lượt khảo sát vì suite integration hardcode MongoDB local `mongodb://localhost:27017/test` và thực hiện `deleteMany({})`; yêu cầu hiện tại chỉ cho khảo sát source, chưa cho phép tác động database test.
+
+### Giới hạn và điểm cần giữ khi đưa sang Đợt 2
+
+- V2 hiện chưa có code, DDL hay tài liệu mapping chứa `Vehicle`, `TireOrder`, `tireorder`, `tirelifecycle` hoặc `tire_order`; kiểm kê 21 collection và ma trận API hiện tại vì vậy chưa bao phủ hai collection/model mới cùng 25 handler này.
+- Theo kiến trúc ba tầng đã chốt, Vehicle, TireOrder, assignment, stock operation, `StorageHistory` và vòng đời chi tiết thuộc Branch Operational DB; Product/Variant nguồn tham chiếu thuộc Company DB. Thiết kế SQL phải dùng logical reference đã được application xác minh và snapshot nghiệp vụ, không tạo foreign key hoặc transaction xuyên database.
+- `tireLifecycleService` hiện tải mọi đơn hoàn thành và dựng toàn bộ timeline trong bộ nhớ cho mỗi request; đây là hành vi baseline nhưng là rủi ro hiệu năng cần đo và thiết kế read model/query SQL phù hợp, không sao chép máy móc.
+- `tireOrderActivity.js` và catalog action cho đơn lốp tồn tại nhưng không có lời gọi ghi activity trong route/service hiện tại; integration test còn khẳng định không có `ActivityLog` cho `tire_order`. Vehicle chỉ ghi activity khi tạo, chưa ghi khi sửa/ngừng/xóa mềm. Không được tuyên bố audit đầy đủ nếu chưa có quyết định tương thích và bổ sung kiểm thử.
+- Source/schema vẫn khai báo `tire_order_delete_revert`, nhưng hành vi mới xóa mềm đơn hoàn thành mà không hoàn tồn nên không phát sinh source này. Cần bảo toàn khả năng đọc dữ liệu cũ nhưng không suy ra đây là event runtime còn được phát.
+- API list vòng đời nhận query `limit` từ frontend nhưng backend cố định 10 item/trang. Đây là contract quan sát được cần ghi nhận rõ khi lập ma trận, không tự đổi trong migration persistence.
+- Giá xuất snapshot vẫn là String legacy và tổng tiền được suy ra bằng cách loại ký tự không phải chữ số/dấu âm. Migration SQL phải giữ raw value, chỉ materialize `decimal(19,4)` khi parse xác định và ghi issue cho giá trị không parse được; không dùng phép parse hiện tại làm bằng chứng dữ liệu tiền đã chuẩn hóa.
+- Chưa xác minh runtime, hiệu năng, rollback khi process chết giữa các bước hoặc hành vi trên dữ liệu thật. Khảo sát source không phải bằng chứng tương đương SQL Server hay sẵn sàng cutover.
+
+### Git legacy sau khảo sát
+
+- Branch: `TTSmartEcom_Deploy`.
+- Commit: `73b6967d65e1ca2ac32e9cf7484772e70c51c140`.
+- `git status --short`: sạch, không có entry; `git diff --check` không báo lỗi.
+- Không có file hoặc dữ liệu nào trong `D:\TTSmartEcomWeb` bị sửa bởi lượt khảo sát.
+
+## Profile MongoDB local `Ecom` cho chức năng lốp ngày 2026-08-27
+
+- Trước khi đọc MongoDB: legacy ở branch `TTSmartEcom_Deploy`, commit `73b6967d65e1ca2ac32e9cf7484772e70c51c140`, worktree sạch.
+- Chủ dự án cho phép khảo sát hai collection mới. Chỉ chạy read-only command/query tổng hợp trên MongoDB 8.0.26 local `127.0.0.1:27017/Ecom`, không đọc `.env`, không xuất document/ObjectId/biển số/tên người và không ghi database.
+- Snapshot đầu lượt: 21 collection/1.670 document; `vehicles=7`, `tireorders=6`. Profile xác nhận 7 vehicle entry, 4 assignment, 3 inventory adjustment và 21 `storagehistories` nguồn lốp.
+- Kết quả chi tiết được ghi tại `docs/migration/MONGODB_ECOM_TIRE_PROFILE_2026-08-27.md`; model map và mapping field-level đã đánh dấu hai collection `Blocked` vì chưa có Branch schema/mapper/dry-run/reconcile.
+- Trong khi profile đang chạy, worktree legacy xuất hiện thay đổi đồng thời ở `be/package.json`, `be/package-lock.json`, `be/tests/tireorder_integration.test.js` để chuyển integration test sang `mongodb-memory-server`, sau đó xuất hiện thêm năm file test frontend lốp untracked: `ad/src/api/tireOrderAdministrationApi.test.js`, `ad/src/components/tireorder/TireChassis.test.jsx`, `tireSlots.test.js`, `tirelifecycles.test.jsx`, `tireorders.test.jsx`. Các lệnh profile không sửa file; các thay đổi này được giữ nguyên và không được tính là kết quả khảo sát.
+- Sau lượt đọc: branch/commit không đổi; `git status --short` có tám entry đồng thời nêu trên. Snapshot MongoDB cuối lượt vẫn 21 collection/1.670 document; `vehicles=7`, `tireorders=6`, không đổi.

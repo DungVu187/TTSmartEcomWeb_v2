@@ -11,7 +11,7 @@ Repository này là bản thay thế được xây dựng độc lập cho `D:\T
 Hiện tại Đợt 1 được giữ làm baseline hành vi và Đợt 2 là phạm vi đang thực hiện. Đợt 2 bao gồm:
 
 - chuyển persistence runtime từ MongoDB sang SQL Server nhưng giữ nguyên API contract ASP.NET Core hiện hữu;
-- thiết kế và triển khai schema ControlPlane cùng schema Operational dùng lại;
+- thiết kế và triển khai ba vai trò database ControlPlane, Company Shared và Branch Operational theo kiến trúc đã chốt; schema Company và Branch phải được version hóa riêng, không được suy ra rằng baseline Operational hai tầng hiện hữu đã đáp ứng kiến trúc ba tầng;
 - xây công cụ profile, dry-run, migration, đối soát và cutover MongoDB sang SQL Server;
 - bổ sung chức năng quản lý đa công ty, chi nhánh, database registry, provisioning, feature/quota và phân quyền theo Company/Branch;
 - bổ sung `TTSmartEcom.Infrastructure.SqlServer`, Entity Framework Core hoặc DDL/migration SQL có version khi phù hợp với kiến trúc được duyệt;
@@ -92,34 +92,51 @@ Authentication, authorization, xử lý exception, logging, configuration, contr
 - Không bịa dữ liệu lịch sử: giá, snapshot, timestamp hoặc quan hệ bị thiếu ở nguồn phải giữ `NULL` cùng migration issue/evidence phù hợp.
 - Migration phải idempotent, có `MigrationRuns`, `MigrationMappings.SourcePath`, issue tracking, source/file manifest và đối soát count/tổng/checksum.
 - Migration schema phải version hóa, có SHA-256 checksum, transaction, `XACT_ABORT`, application lock và phát hiện drift. Script reusable kết nối trực tiếp database đích, không hardcode `USE` database prototype.
-- Không có foreign key hoặc transaction nghiệp vụ xuyên database. Logical reference giữa ControlPlane và Operational do application kiểm tra.
+- Không có foreign key hoặc transaction nghiệp vụ xuyên database. Logical reference giữa ControlPlane, Company DB và Branch DB do application kiểm tra; chứng từ Branch phải giữ snapshot nghiệp vụ cần thiết thay vì phụ thuộc join xuyên database để tái hiện lịch sử.
 - File PDF/ảnh không lưu BLOB trong SQL Server. SQL chỉ giữ metadata, checksum và storage key tương đối; storage root nằm trong cấu hình máy/VPS. Phải canonicalize và xác nhận đường dẫn cuối vẫn nằm dưới root.
-- Chưa phát triển đồng bộ local-cloud. Database Operational cài local là authoritative độc lập cho dữ liệu của nó; không tạo bảng/công tắc sync nếu chưa có thiết kế được duyệt.
+- Chưa phát triển đồng bộ local-cloud. Branch DB là authoritative cho giao dịch, tồn kho và lịch sử vận hành của chính Branch; Company DB là authoritative cho dữ liệu dùng chung của Company. Không tạo bảng/công tắc sync, cache offline hoặc bản sao Product Master nếu chưa có thiết kế được duyệt.
 
 ## Kiến trúc database và mô hình đa công ty
 
-Đợt 2 dùng ba nhóm tên database vật lý nhưng chỉ hai họ schema:
+Đợt 2 dùng ba vai trò database vật lý và ba ranh giới schema:
 
 ```text
-ControlPlane
+Platform / ControlPlane
 └── [ttsmart.com.vn]
+    └── Company registry, identity, quyền, feature/quota và provisioning
 
-Operational
-├── [TTSmart]
-└── [{ChiNhanh}_online]
+Company Shared
+└── [TTSmart] hoặc [{CompanyCode}]
+    └── Product Master và dữ liệu nghiệp vụ dùng chung của Company
+
+Branch Operational
+└── [{CompanyCode}_{BranchCode}_online]
+    └── đơn hàng, nhập/xuất/tồn, Station và vận hành riêng của Branch
 ```
 
-- `[ttsmart.com.vn]` quản lý Company, Branch, identity/quyền control-plane, feature/quota/AI, database server/template/release/registry, provisioning và audit hệ thống. Không đặt Product, Customer, Cart, chứng từ, Stock hoặc metadata file nghiệp vụ tại đây.
-- `[TTSmart]` là database bán hàng đầy đủ của TTSmart.
-- Mỗi `[{ChiNhanh}_online]` là database Operational độc lập theo cùng một schema/version cố định với `[TTSmart]`; không cho phép schema drift tùy chi nhánh.
-- Mỗi database Operational tự chứa local identity, catalog, customer/cart/template, sales, nhập/xuất/tồn, file metadata, Station/storefront, voice/integration và audit để có thể chạy trong LAN khi không kết nối ControlPlane.
-- Mỗi chi nhánh có catalog, tồn kho và chứng từ riêng; không có Product master bắt buộc dùng chung và không yêu cầu thay đổi giữa các chi nhánh xuất hiện tức thời.
-- Không tạo `CompanyDb` trung gian và không gom dữ liệu nhiều công ty/chi nhánh vào một Operational database dùng chung bằng `TenantId`, trừ khi owner thay đổi kiến trúc bằng quyết định riêng.
+- `[ttsmart.com.vn]` là Platform DB duy nhất, quản lý Company, Branch, identity/quyền control-plane, feature/quota/AI, database server/template/release/registry, provisioning và audit platform. Không đặt Product Master, đơn hàng, Stock hoặc metadata file nghiệp vụ tại đây.
+- Mỗi Company có một Company DB. Với chính TTSmart, `[TTSmart]` giữ vai trò Company DB; với Company khác, tên vật lý được cấp qua database registry và provisioning. Company DB chỉ sở hữu dữ liệu dùng chung giữa các Branch như Product Master, ProductVariant, Brand, Category và cấu hình Company đã được duyệt.
+- Product là thực thể dùng chung cấp Company. Mọi Branch của cùng Company reference cùng internal `ProductId`; không tạo Product độc lập theo Branch rồi dùng `Code` để suy đoán chúng là cùng sản phẩm.
+- Khi Branch tạo hoặc chọn sản phẩm, backend phải resolve Company từ trusted scope, kiểm tra Product trong Company DB và chỉ tạo Product Master tại đó khi actor có permission cấp Company phù hợp, ví dụ `product.master.create`. Không query ngang các Branch DB để kiểm tra trùng mã.
+- Mỗi Branch có một Branch DB riêng, mặc định theo convention `[{CompanyCode}_{BranchCode}_online]`, chứa Orders, Inventory, Stock, Import/Export, Station, file metadata và Activity History thuộc vận hành riêng của Branch. Tên thực tế vẫn phải đi qua registry, allowlist và provisioning; không ghép identifier trực tiếp từ input.
+- Các Branch DB dùng chung một Branch schema/version cố định; các Company DB dùng chung một Company schema/version cố định. Không cho phép schema drift tùy Company/Branch.
+- Không gom nhiều Company hoặc nhiều Branch vào một database nghiệp vụ dùng chung bằng `TenantId`, trừ khi owner thay đổi kiến trúc bằng quyết định riêng.
+- Không query trực tiếp Branch DB này sang Branch DB khác. Dashboard cấp Company có thể fan-out/read-model qua application để tổng hợp nhiều Branch, nhưng mọi mutation như tạo đơn, nhập kho, xuất kho hoặc điều chỉnh tồn phải chọn đúng một Branch.
+- Quy tắc audit là “dữ liệu nằm ở DB nào thì Activity History chi tiết của thay đổi nằm ở DB đó”: platform operation ghi tại Platform DB; thay đổi Product Master/cấu hình chung ghi tại Company DB; đơn hàng/tồn kho/Station ghi tại Branch DB. Không sao chép toàn bộ audit chi tiết Branch lên Company DB.
 - Form tạo Company bắt buộc `CompanyCode`. Form tạo Branch giữ thông tin cơ bản và có `DatabaseName`, `DatabasePassword`; password chỉ tồn tại trong luồng provisioning/secret manager, không lưu plaintext trong ControlPlane, log, config hoặc audit.
 - Tên database/login phải được allowlist và quote an toàn. Database/login unique trong phạm vi `DatabaseServer`; database branch phải có prefix không rỗng và hậu tố `_online`.
 - Provisioning phải idempotent, một active operation trên mỗi database đích, có lease token, retry, release/template checksum và kiểm tra stale worker.
 - Authorization phải chặn role, feature, audit và database assignment xuyên Company/Branch. Feature Branch không được vượt entitlement Company.
 - Không dùng application account có quyền `sysadmin`/`db_owner` thường trực. Quyền tạo database/login thuộc worker provisioning tách biệt và tối thiểu cần thiết.
+
+## Workspace quản trị và mô hình quyền
+
+- Giữ một frontend quản trị trong `ad`, không tách thành hai project. Frontend có hai workspace rõ ràng: **Control Plane** để quản trị platform và **Operational** để vận hành Company/Branch.
+- Platform SuperAdmin có thể chuyển giữa hai workspace. Company Admin và Employee mặc định chỉ thấy Operational theo membership, feature và permission được cấp. Customer/storefront chưa thuộc trọng tâm triển khai runtime của lát cắt này.
+- `Company` và `Branch` là scope/entity, không phải role. Quyết định cho phép phải thỏa đồng thời: `Authentication ∩ Membership ∩ Scope ∩ Permission ∩ Feature ∩ Resource ownership`.
+- Không tin `CompanyId`/`BranchId` do frontend gửi. Backend phải resolve và kiểm tra active scope từ identity/membership đáng tin cậy trước khi chọn Company DB hoặc Branch DB.
+- Platform SuperAdmin được bypass permission thông thường trong phạm vi platform/company/branch, nhưng không bypass kiểm tra database assignment, input safety hoặc audit. Mọi thao tác đặc quyền phải ghi actor, Company, Branch, action, resource, thời điểm và before/after khi phù hợp.
+- Frontend ẩn menu/button chỉ để cải thiện UX; backend authorization mới là ranh giới bảo mật.
 
 ## Baseline bảo mật
 
@@ -150,7 +167,7 @@ Chỉ chạy integration/security test với các dependency test biệt lập. 
 - chỉ recreate/DDL/DML trên database test có tên được cấp phép rõ ràng; không chạm `[ttsmart.com.vn]`, `[TTSmart]`, database `_online` hiện hữu hoặc SQL Server production nếu chưa có quyền riêng;
 - test schema phải bao phủ checksum mismatch, chạy lại idempotent, concurrent runner, constraint trusted/enabled, tên constraint ổn định, database options và schema fingerprint tái lập;
 - constraint test phải rollback và thực sự thực thi từng case; không dùng `WHERE 1=0` hoặc test chỉ đếm object làm bằng chứng nghiệp vụ;
-- integration test phải bao phủ local identity, Company/Branch authorization, provisioning lease/idempotency, AI reservation ledger, snapshot đơn hàng, stock operation/reversal, file path traversal và transaction tồn kho đồng thời;
+- integration test phải bao phủ identity, Company/Branch authorization, routing đúng Platform/Company/Branch DB, Product Master dùng chung cấp Company, chặn đọc/ghi chéo Branch, provisioning lease/idempotency, AI reservation ledger, snapshot đơn hàng, stock operation/reversal, file path traversal và transaction tồn kho đồng thời;
 - migration dry-run phải đối soát document/subdocument count, orphan, tổng tiền, quantity, source mapping và file manifest/checksum;
 - `DBCC CHECKCONSTRAINTS` và `DBCC CHECKDB ... WITH PHYSICAL_ONLY` là kiểm tra bổ sung, không thay thế contract/data/concurrency test;
 - RCSI, collation, recovery model, backup/restore và query/index plan phải được kiểm thử trước khi chốt cấu hình production.
@@ -165,7 +182,7 @@ Giữ các tài liệu sống sau đồng bộ với code:
 - `docs/security/ENDPOINT_ACCESS_MATRIX.md` cho chính sách truy cập.
 - `docs/migration/MONGODB_MODEL_MAP.md` cho nguồn BSON và khả năng tương thích legacy.
 - `docs/migration/MONGODB_TO_SQLSERVER_MAPPING_V1.md` cho mapping field-level và trạng thái bảo toàn dữ liệu.
-- `docs/architecture/SQLSERVER_TARGET_ARCHITECTURE.md` cho ranh giới ControlPlane/Operational và mô hình đa công ty.
+- `docs/architecture/SQLSERVER_TARGET_ARCHITECTURE.md` cho ranh giới Platform/Company/Branch, mô hình Product Master dùng chung và trạng thái chuyển tiếp từ baseline hai tầng.
 - `docs/migration/SQLSERVER_V1_BASELINE_IMPLEMENTATION.md` cho bằng chứng DDL/database test và các phần chưa xác minh.
 - `docs/architecture/MODULE_MAP.md` để điều hướng.
 - `docs/operations/ERROR_CATALOG.md` cho các định danh lỗi và sự kiện ổn định.

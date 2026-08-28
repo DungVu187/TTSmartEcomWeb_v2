@@ -8,6 +8,10 @@ Tài liệu này là manifest thiết kế field-level cho Đợt 2; không ph�
 
 Profile/migrate test đã chạy trên 1.503 document. Mapper chuẩn hiện có bằng chứng cho `brands`, `types`, `sections` (Category/CategoryValue) và `products` (Product/Variant/Stock). Các dòng `Mapped` còn lại trong manifest này mô tả **rule đích cần triển khai**, không được hiểu là mapper Ecom đã chạy. Cho tới khi mapper tương ứng có dry-run/migrate/reconcile riêng, collection/field đó có trạng thái thực thi `Blocked/raw`: worker giữ Canonical Extended JSON có redaction cùng `MigrationIssues`, không tự suy diễn. Báo cáo count/disposition thực tế: `MONGODB_ECOM_MIGRATION_TEST_REPORT_2026-08-15.md`.
 
+### Bằng chứng profile lốp Ecom ngày 2026-08-27
+
+Profile read-only mới quan sát `vehicles=7`, `tireorders=6`, 7 vehicle entry, 4 assignment và 3 inventory adjustment. Chưa có mapper/Branch schema/dry-run/reconcile cho hai collection này; mọi dòng dưới đây có trạng thái thực thi `Blocked` dù rule bảo toàn nguồn đã được nhận diện. Chi tiết count/type/orphan/invariant: `MONGODB_ECOM_TIRE_PROFILE_2026-08-27.md`.
+
 | Trạng thái | Ý nghĩa thực thi |
 |---|---|
 | `Mapped` | Có đích vật lý baseline v1 **và** quy tắc chuyển, xử lý null/orphan, cùng tiêu chí đối soát được nêu ngay trong dòng; worker vẫn phải ghi `MigrationMappings`. |
@@ -19,6 +23,30 @@ Profile/migrate test đã chạy trên 1.503 document. Mapper chuẩn hiện có
 `Root` của mọi collection có `_id` dùng GUID nội bộ, `PublicId char(24)` bằng ObjectId lowercase-hex, `Version = __v ?? 0`, và một dòng `MigrationMappings` với `SourcePath=''`. Mỗi subdocument có `_id` cũng dùng `PublicId`/mapping riêng; child `_id:false` dùng index zero-based trong `SourcePath`. `createdAt`/`updatedAt` chỉ map khi schema đích có cột tương ứng; missing/null vẫn là null, không dùng thời điểm migration làm thời gian nghiệp vụ. `rowversion` là SQL-only. Chuỗi số chỉ parse bằng parser versioned; raw không parse được phải tạo `MigrationIssues` (không đổi thành `0`). URL/file chỉ là alias hoặc storage key tương đối sau canonicalization, không đọc/chép nội dung file.
 
 ## Ma trận collection và field
+
+### `vehicles`, `tireorders`
+
+| Source path | Đích / chuyển đổi | Null, orphan, đối soát | Trạng thái |
+|---|---|---|---|
+| `vehicles._id`, `__v` | Branch Vehicle GUID/PublicId/version + mapping root | 7 ObjectId; `__v` 0/1; chưa có bảng Branch | Blocked |
+| `vehicles.licensePlate`, `licensePlateKey` | Biển số snapshot/normalized key cấp Branch | Không rỗng; unique chỉ trong tập active, không merge xe inactive trùng normalized plate | Blocked |
+| `vehicles.name`, `note`, `isActive` | Metadata và trạng thái Vehicle Branch | Chuỗi rỗng giữ nguyên; 5 active/2 inactive | Blocked |
+| `vehicles.wheelCount` | Loại layout 10/12 | 2/7 missing: giữ missing trong evidence, compatibility default 10 bằng rule versioned | Blocked |
+| `vehicles.createdAt`, `updatedAt` | Source timestamp | 7/7 Date; không dùng migration time thay thế | Blocked |
+| `tireorders._id`, `__v` | Branch TireOrder GUID/PublicId/version + mapping root | 6 ObjectId; version 2–5 trong snapshot, thiết kế vẫn cho phép 0 | Blocked |
+| `orderName`, `note`, `createdBy`, `createdByName` | Header/snapshot actor | Actor resolve trong trusted Branch scope; orphan giữ reference/snapshot, không tạo User | Blocked |
+| `transactionDate`, `status`, `completedAt` | Ngày nghiệp vụ/lifecycle | 3 completed/3 processing; completedAt Date/null; không bịa timestamp | Blocked |
+| `isDeleted`, `deletedAt`, `deletedBy`, `deletedByName` | Soft-delete metadata | Hai đơn missing toàn bộ deletion fields; missing khác null/false và phải giữ evidence | Blocked |
+| `totalVehicles`, `totalTires`, `totalExportPrice`, `stockAppliedTireCount` | Persisted totals + đối soát derived | Snapshot hiện khớp; giá raw assignment vẫn phải giữ, không chỉ giữ aggregate | Blocked |
+| `inventory.phase`, `operationId`, `startedAt`, `appliedAt` | Stock operation/idempotency state Branch | Không tái sử dụng operation đang dang dở nếu chưa có recovery design | Blocked |
+| `vehicles[i]._id`, `vehicleId`, `licensePlateSnapshot`, `vehicleNameSnapshot`, `wheelCount`, `note` | TireOrderVehicle child + logical Vehicle reference/snapshot | `SourcePath=vehicles[ObjectId]`; 7 child; không FK xuyên DB | Blocked |
+| `vehicles[i].assignments[j]._id`, `productId`, `variantId`, `variantIndex` | Tire assignment + logical Company Product/Variant reference | `SourcePath` theo hai ObjectId; 4 child; hiện không orphan; không FK Company–Branch | Blocked |
+| `productCodeSnapshot`, `productNameSnapshot`, `brandSnapshot`, `exportPriceSnapshot`, `productValueSnapshot`, `productSpecificationsSnapshot` | Snapshot nghiệp vụ Branch | Giữ từng raw string; giá parse versioned sang decimal, raw rỗng/invalid không thành 0 | Blocked |
+| `variantSnapshot.color`, `shape`, `buttonCount`, `frame`, `note` | Snapshot variant trên assignment | Giữ từng field/null/rỗng, không join Product hiện tại để lấp lịch sử | Blocked |
+| `slotId`, `performedAt`, `previousTireStoppedAt`, `note`, `stockAppliedQuantity` | Vị trí/ngày/lifecycle/applied state | Layout 10/12; Date/null; đối soát duplicate, capacity và chronology | Blocked |
+| `inventory.adjustments[i].vehicleEntryId`, `vehicleId`, `vehiclePlateSnapshot`, `productId`, `variantId`, `variantIndex`, `quantity` | Stock adjustment ledger/provenance | 3 child; mapping path theo index vì `_id:false`; đối soát tổng với completed assignment | Blocked |
+
+`storagehistories` nguồn lốp có thêm `vehicleId`, `vehicleEntryId`, `vehiclePlate`, `orderType`, `inventoryOperationId`, `variantId`, `variantIndex`. 21 document phải được giữ dưới Branch evidence/stock operation mapping; 18 reference tới đơn không còn tồn tại phải giữ `LegacyOrderKey` và issue/tombstone, không drop hoặc tự tạo đơn.
 
 ### `activitylogs`
 
@@ -125,6 +153,14 @@ Profile/migrate test đã chạy trên 1.503 document. Mapper chuẩn hiện có
 
 ### `iporders`, `eporders`, `storagehistories`
 
+#### Bổ sung tương thích ngày giao dịch thực tế (2026-08-21)
+
+| Nguồn | Đích | Quy tắc | Trạng thái |
+|---|---|---|---|
+| `iporders.transactionDate`, `eporders.transactionDate` | `InventoryOrders.TransactionDateUtc` (hoặc `ImportOrders`/`ExportOrders.TransactionDateUtc` trong schema tách bảng) | ISO date/epoch milliseconds hợp lệ giữ nguyên UTC; dữ liệu cũ thiếu trường dùng `createdAt` làm fallback, không thay `CompletedAtUtc` | Mapped |
+| `storagehistories.transactionDate` | `StockOperations.TransactionDateUtc` | Dùng cho lọc/sắp xếp lịch sử; thiếu/null fallback `createdAt`/`OccurredAtUtc`; `OccurredAtUtc` vẫn là thời điểm ghi operation | Mapped |
+| `storagehistories.quantityBefore`, `quantityAfter`, `source=import_quantity_adjustment` | `StockOperations.DetailsJson` | Giữ before/after và source; chiều import vẫn bao gồm event điều chỉnh có quantity delta âm | Mapped |
+
 | Collection / source path | Đích / chuyển đổi | Null, orphan, đối soát | Trạng thái |
 |---|---|---|---|
 | `iporders._id`, `__v` | `ImportOrders.ImportOrderId`, `PublicId`, `Version`, mapping root | count | Mapped |
@@ -226,6 +262,18 @@ Profile/migrate test đã chạy trên 1.503 document. Mapper chuẩn hiện có
 4. Không chuyển field `Blocked` bằng cách dùng default SQL, dữ liệu Product hiện tại hay thời điểm migration. Các cột thiếu cần migration schema version mới trước khi data migration.
 
 ## Ghi chú lịch sử runner và verification v1
+
+## Company Product Master v1 (design baseline, chưa migrate dữ liệu)
+
+| Nguồn BSON cần profile/đối chiếu | Đích Company v1 | Quy tắc bảo toàn | Trạng thái |
+|---|---|---|---|
+| `products._id`, `code`, `name`, brand và các thuộc tính catalog đã có bằng chứng | `Products`/`Brands` | `_id` giữ ở `PublicId`; GUID là khóa nội bộ; code lưu riêng normalized code. Field chưa có profile không được suy từ DDL. | Blocked |
+| `products.variants[*]._id`, SKU, barcode, unit | `ProductVariants`/`ProductCodes`/`Units` | Giữ source path cho từng child; SKU/barcode normalized unique; đơn vị gắn variant. | Blocked |
+| Category có thể nhiều giá trị trên Product | `ProductCategoryAssignments` | Không ép một `CategoryId`; cần profile xác định source path và orphan handling. | Blocked |
+| URL/file product | `Files`/`ProductFiles`/`MigrationFileManifests` | Chỉ metadata, storage key tương đối canonical, SHA-256/manifest; không lưu BLOB hoặc copy upload thật. | Blocked |
+| Trường không có đích hoặc không đủ semantics | `LegacyRecords`/`MigrationIssues`/`MigrationMappings` | Ghi canonical Extended JSON đã redact và trạng thái `Archived`, `SecretStore`, `Empty` hoặc `Blocked`; không bịa giá trị lịch sử. | Blocked |
+
+Không có lệnh profile, dry-run hay migration MongoDB nào được chạy trong Company baseline này.
 
 Các finding về re-check sau application lock, test placeholder và độ bao phủ fingerprint ở prototype trước v1 là hồ sơ lịch sử; không mô tả trạng thái runner baseline v1 hiện tại. Bằng chứng DDL/test schema thuộc `SQLSERVER_V1_BASELINE_IMPLEMENTATION.md`. Dù schema test đã được kiểm tra, các dòng `Blocked` ở ma trận này vẫn là blocker của migration dữ liệu vì thiếu cột, rule hoặc manifest field-level; chúng không được hạ thành `Mapped` nhờ kết quả DDL.
 

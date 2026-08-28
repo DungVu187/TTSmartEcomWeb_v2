@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using System.Globalization;
+using System.Text.Json;
 using TTSmartEcom.Api.Configuration;
 using TTSmartEcom.Api.Contracts.Inventory;
 using TTSmartEcom.Api.Files;
@@ -46,14 +48,16 @@ public abstract class InventoryOrdersControllerBase(
     {
         IActionResult? denied = Permission("create"); if (denied is not null) return denied;
         IReadOnlyList<InventoryOrderLineInput> lines = (request.ProductList ?? []).Select(ToInput).ToArray();
-        return StatusCode(201, ToResponse(await orders.CreateAsync(Kind, Identity()?.Name ?? "Hệ thống", request.OrderName, request.Note, lines, ct)));
+        if (!TryParseTransactionDate(request.TransactionDate, out _, out DateTimeOffset? transactionDate)) return InvalidTransactionDate();
+        return StatusCode(201, ToResponse(await orders.CreateAsync(Kind, Identity()?.Name ?? "Hệ thống", request.OrderName, request.Note, transactionDate, lines, ct)));
     }
 
     [HttpPut("orders/{id}")]
     public async Task<IActionResult> Metadata(string id, UpdateInventoryOrderRequest request, CancellationToken ct)
     {
         IActionResult? denied = Permission("edit"); if (denied is not null) return denied;
-        return Ok(ToResponse(await orders.UpdateMetadataAsync(Kind, id, request.OrderName, request.Note, request.Images, ct)));
+        if (!TryParseTransactionDate(request.TransactionDate, out bool hasTransactionDate, out DateTimeOffset? transactionDate)) return InvalidTransactionDate();
+        return Ok(ToResponse(await orders.UpdateMetadataAsync(Kind, id, request.OrderName, request.Note, request.Images, hasTransactionDate, transactionDate, ct)));
     }
 
     [HttpPut("orders/{id}/name")]
@@ -229,7 +233,7 @@ public abstract class InventoryOrdersControllerBase(
         Kind == InventoryOrderKind.Import ? request.QuantityRe ?? 0 : request.ExportedQuantity ?? 0, request.Note, request.Vat, request.SkipStockUpdate, request.IsAIScan, request.Status);
 
     private InventoryOrderLineUpdateInput ToUpdateInput(UpdateInventoryOrderLineRequest request) => new(request.ProductId, request.Price, request.ImportPriceSnapshot, request.ProfitPercent, request.Unit, request.Quantity,
-        Kind == InventoryOrderKind.Import ? request.QuantityRe : request.ExportedQuantity, request.Note, request.Vat, request.SkipStockUpdate, request.IsAIScan, request.Status);
+        Kind == InventoryOrderKind.Import ? request.QuantityRe : request.ExportedQuantity, request.Note, request.Vat, request.SkipStockUpdate, request.IsAIScan, request.Status, request.QuantityAdjustment);
 
     private static object ToProductSummaryResponse(InventoryOrderProductSummary product) => new
     {
@@ -264,6 +268,7 @@ public abstract class InventoryOrdersControllerBase(
         ["images"] = order.Images,
         ["total"] = order.Total,
         ["status"] = order.Status,
+        ["transactionDate"] = order.TransactionDate,
         ["completedAt"] = order.CompletedAt,
         ["createdAt"] = order.CreatedAt,
         ["updatedAt"] = order.UpdatedAt,
@@ -296,4 +301,28 @@ public abstract class InventoryOrdersControllerBase(
         }
         return response;
     }
+
+    private static bool TryParseTransactionDate(JsonElement value, out bool supplied, out DateTimeOffset? transactionDate)
+    {
+        supplied = value.ValueKind != JsonValueKind.Undefined;
+        transactionDate = null;
+        if (!supplied) return true;
+        if (value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed))
+        {
+            transactionDate = parsed.ToUniversalTime();
+            return true;
+        }
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long milliseconds))
+        {
+            try
+            {
+                transactionDate = DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+                return true;
+            }
+            catch (ArgumentOutOfRangeException) { }
+        }
+        return false;
+    }
+
+    private BadRequestObjectResult InvalidTransactionDate() => BadRequest(new { message = "Ngày thực tế không hợp lệ." });
 }

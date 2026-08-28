@@ -1,4 +1,5 @@
 import { apiFetch } from "./httpClient";
+import { clearAdminScope } from "./adminScope";
 
 const getAdminLoginPath = () =>
   import.meta.env.VITE_APP_ADMIN_LOGIN || "/users/admin/login";
@@ -8,6 +9,8 @@ export const loginAdmin = (credentials, loginPath = getAdminLoginPath()) =>
     method: "POST",
     json: credentials,
   });
+
+export const clearAdminSessionScope = () => clearAdminScope();
 
 export const requestAdminPasswordReset = (identifier) =>
   apiFetch("/users/forgot-password", {

@@ -1,6 +1,14 @@
 # Ma trận truy cập endpoint
 
-Bản chụp: 2026-08-13. Tài liệu này ghi lại các attribute/kiểm tra authorization đã triển khai, không phải chứng nhận bảo mật. Mọi route đã khai báo cũng chấp nhận alias `/api`.
+Bản chụp: 2026-08-20. Tài liệu này ghi lại các attribute/kiểm tra authorization đã triển khai, không phải chứng nhận bảo mật. Mọi route đã khai báo cũng chấp nhận alias `/api`.
+
+Phase 3A: Control Plane identity được tải lại từ `[ttsmart.com.vn]` trước authorization. Với user Control Plane, permission policy dùng active Company/Branch scope; không dùng `AdminFullAccess` để cấp quyền global. `X-Company-Id`/`X-Branch-Id` chỉ chọn membership đã xác thực và cặp company/branch lệch nhau bị từ chối. Các endpoint mới có target object phải gắn `ScopeAuthorize` và kiểm tra target sau model binding; bảng dưới không được coi là bằng chứng đã bao phủ mọi route object-scope.
+
+Company schema v1 là DDL test-only, không thêm HTTP endpoint và không đổi policy runtime trong lát cắt này. Khi thêm mutation Product Master dùng Company DB, endpoint mới phải yêu cầu scope Company đáng tin cậy, permission Company (ví dụ `product.master.create`), feature phù hợp, kiểm tra ownership resource và ghi audit Company; không tin CompanyId/BranchId từ client.
+
+Admin frontend chỉ gửi scope từ lựa chọn membership đã trả về bởi `/users/profile`; giá trị lưu browser bị xóa khi login/logout. Backend vẫn là boundary quyết định: header do client gửi không thay thế authorization object-scope.
+
+Quyết định kiến trúc ngày 2026-08-24: `Company` và `Branch` là scope/entity, không phải role. Quyền cho phép phải thỏa authentication, membership, scope, permission, feature và resource ownership. Platform SuperAdmin được bypass permission thông thường ở cả Control Plane và Operational, nhưng không bypass kiểm tra database assignment, input safety hoặc Activity History. Mutation nghiệp vụ luôn phải resolve đúng một Branch; scope “Tất cả chi nhánh” chỉ dành cho đọc/tổng hợp dashboard.
 
 | Nhóm route | Số lượng legacy | V2 đã khai báo | Public / tùy chọn | Người dùng đã authentication | Role / permission | Ghi chú cấp đối tượng và triển khai | Bằng chứng test |
 |---|---:|---:|---|---|---|---|---|
@@ -21,10 +29,10 @@ Bản chụp: 2026-08-13. Tài liệu này ghi lại các attribute/kiểm tra a
 
 ## Biện pháp kiểm soát xuyên suốt và khoảng trống
 
-- JWT chỉ được đọc từ cookie `authToken`. Việc tải lại identity Mongo đang hoạt động và vô hiệu hóa khi đổi password chạy trước authorization.
-- Chính sách permission cấp quyền truy cập cho superadmin và giữ `AdminFullAccess` có thể cấu hình cho admin. Đây vẫn là một quyết định tương thích.
+- JWT chỉ được đọc từ cookie `authToken`. Với tài khoản nội bộ, middleware tải lại identity Control Plane và membership đang hoạt động trước authorization; khách hàng legacy tiếp tục dùng identity adapter Operational/Mongo.
+- Chính sách permission cấp quyền truy cập cho Platform SuperAdmin theo bypass đã chốt. `AdminFullAccess` có thể cấu hình cho role admin legacy vẫn chỉ là quyết định tương thích và không được suy rộng thành quyền Platform SuperAdmin.
 - `LegacyCsrfOriginMiddleware` từ chối yêu cầu không an toàn có cookie `authToken`, trừ khi yêu cầu có đúng một `Origin` trong allowlist, một `Referer` có origin trong allowlist hoặc, khi thiếu cả hai, Fetch Metadata bằng `same-origin`. Kiểm thử xác nhận origin cùng site nhưng khác origin với giá trị `same-site` bị từ chối. Chính sách vẫn đang mở vì chưa được xác minh với trình duyệt/staging phía sau reverse proxy.
 - CORS allowlist chỉ cho phép thông tin xác thực đối với các origin được cấu hình.
 - Ba nhóm quản trị dùng kiểm tra role trực tiếp (`telegram`, `zalo`, danh mục permission), trong khi phần lớn nhóm khác dùng chính sách permission động.
 - Đã có kiểm thử âm tính cho sai role/đối tượng đích trong quản trị user và ranh giới authorization ở nhiều nhóm; độ bao phủ dương tính/âm tính giữa các đối tượng và endpoint Mongo cho toàn bộ ma trận vẫn chưa đầy đủ.
-- Cổng backend đầy đủ gần nhất đạt 332/332 test: Unit 231, Contract 53, Integration 16 và Security 32. Đây là bằng chứng hồi quy tại checkpoint, không phải một test authorization dương tính/âm tính cho từng endpoint.
+- Cổng backend Phase 3A đạt 362/362 test ở lần chạy có SQL Server test cô lập: Unit 245, Contract 53, Integration 27 và Security 37. Đây là bằng chứng hồi quy tại checkpoint, không phải một test authorization dương tính/âm tính cho từng endpoint.

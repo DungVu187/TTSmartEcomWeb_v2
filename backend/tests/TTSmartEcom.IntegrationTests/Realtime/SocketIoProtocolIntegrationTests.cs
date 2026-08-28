@@ -16,8 +16,10 @@ using Microsoft.IdentityModel.Tokens;
 using TTSmartEcom.Api.Configuration;
 using TTSmartEcom.Api.Realtime;
 using TTSmartEcom.Application.Abstractions.Authentication;
+using TTSmartEcom.Application.Abstractions.Security;
 using TTSmartEcom.Application.Orders;
 using TTSmartEcom.Application.Realtime;
+using TTSmartEcom.Domain.Security;
 
 namespace TTSmartEcom.IntegrationTests.Realtime;
 
@@ -27,6 +29,7 @@ public sealed class SocketIoProtocolIntegrationTests
     private const string AdminUserId = "507f1f77bcf86cd799439011";
     private const string OtherAdminUserId = "507f1f77bcf86cd799439012";
     private const string CustomerUserId = "507f1f77bcf86cd799439013";
+    private const string ControlPlaneSuperAdminUserId = "b3a89f4d-0b53-4c94-9556-9a95d2648c72";
 
     [Fact]
     public async Task WebSocketFirst_ConnectsAndReceivesAllFourOrderEvents()
@@ -89,6 +92,22 @@ public sealed class SocketIoProtocolIntegrationTests
             await ReceiveApplicationPacketAsync(socket, timeout.Token),
             "order_deleted",
             payload => Assert.Equal("order-1", payload.GetProperty("orderId").GetString()));
+    }
+
+    [Fact]
+    public async Task WebSocketFirst_ControlPlaneSuperAdmin_ConnectsWithoutOperationalUser()
+    {
+        await using SocketIoTestHost host = await SocketIoTestHost.StartAsync();
+        using CancellationTokenSource timeout = Timeout();
+        using WebSocket socket = await host.ConnectWebSocketAsync(
+            "/socket.io?EIO=4&transport=websocket",
+            host.ControlPlaneSuperAdminToken,
+            AllowedOrigin,
+            timeout.Token);
+
+        AssertOpenPacket(await ReceiveTextAsync(socket, timeout.Token), expectsUpgrade: false);
+        await SendTextAsync(socket, "40", timeout.Token);
+        AssertConnectPacket(await ReceiveApplicationPacketAsync(socket, timeout.Token));
     }
 
     [Fact]
@@ -420,6 +439,7 @@ public sealed class SocketIoProtocolIntegrationTests
             AdminToken = CreateToken(AdminUserId);
             OtherAdminToken = CreateToken(OtherAdminUserId);
             CustomerToken = CreateToken(CustomerUserId);
+            ControlPlaneSuperAdminToken = CreateToken(ControlPlaneSuperAdminUserId);
         }
 
         public HttpClient Client { get; }
@@ -427,6 +447,7 @@ public sealed class SocketIoProtocolIntegrationTests
         public string AdminToken { get; }
         public string OtherAdminToken { get; }
         public string CustomerToken { get; }
+        public string ControlPlaneSuperAdminToken { get; }
 
         public static async Task<SocketIoTestHost> StartAsync()
         {
@@ -480,6 +501,7 @@ public sealed class SocketIoProtocolIntegrationTests
                     };
                 });
             builder.Services.AddSingleton<IUserIdentityReader>(new FakeIdentityReader());
+            builder.Services.AddSingleton<IControlPlaneIdentityReader>(new FakeControlPlaneIdentityReader());
             builder.Services.AddSingleton<IOrderService>(static _ =>
                 throw new NotSupportedException("Order mutations are outside this protocol fixture."));
             builder.Services.AddTtsmartSocketIoRealtime(builder.Configuration);
@@ -590,5 +612,29 @@ public sealed class SocketIoProtocolIntegrationTests
                     null);
             return Task.FromResult(identity);
         }
+    }
+
+    private sealed class FakeControlPlaneIdentityReader : IControlPlaneIdentityReader
+    {
+        public Task<ICurrentUserContext?> FindContextByIdAsync(Guid userId, CancellationToken cancellationToken) =>
+            Task.FromResult<ICurrentUserContext?>(userId.ToString() == ControlPlaneSuperAdminUserId
+                ? new CurrentUserContext(
+                    userId,
+                    isAuthenticated: true,
+                    isPlatformSuperAdmin: true,
+                    displayName: "Control Plane Super Admin",
+                    email: "superadmin@example.test",
+                    phone: null,
+                    companyMemberships: [],
+                    activeCompanyId: null,
+                    branchMemberships: [],
+                    activeBranchId: null,
+                    roles: ["superadmin"],
+                    permissions: new HashSet<string>(StringComparer.Ordinal),
+                    isControlPlaneIdentity: true)
+                : null);
+
+        public Task<ICurrentUserContext?> FindContextByLoginAsync(string identifier, CancellationToken cancellationToken) =>
+            Task.FromResult<ICurrentUserContext?>(null);
     }
 }

@@ -4,6 +4,7 @@ using TTSmartEcom.Api.Contracts.Users.Requests;
 using TTSmartEcom.Api.Middleware;
 using TTSmartEcom.Application.Abstractions.Authentication;
 using TTSmartEcom.Application.Users;
+using TTSmartEcom.Domain.Security;
 using TTSmartEcom.Domain.Users;
 
 namespace TTSmartEcom.Api.Controllers.Users;
@@ -14,7 +15,18 @@ public sealed class UserProfileController(IUserProfileRepository repository) : C
 {
     [HttpGet("profile")]
     [Authorize]
-    public async Task<IActionResult> Profile(CancellationToken ct) => await ExecuteForCurrentAsync(async id => (await repository.FindProfileAsync(id, ct)) is { } profile ? Ok(profile) : NotFound(new { message = "Không tìm thấy người dùng" }), ct);
+    public async Task<IActionResult> Profile(CancellationToken ct)
+    {
+        if (HttpContext.Items[CurrentUserContextMiddleware.ContextItemKey] is ICurrentUserContext context
+            && context.IsControlPlaneIdentity)
+        {
+            return Ok(ToControlPlaneProfile(context));
+        }
+
+        return await ExecuteForCurrentAsync(async id => (await repository.FindProfileAsync(id, ct)) is { } profile
+            ? Ok(profile)
+            : NotFound(new { message = "Không tìm thấy người dùng" }), ct);
+    }
 
     [HttpPut("profile")]
     [Authorize]
@@ -38,7 +50,23 @@ public sealed class UserProfileController(IUserProfileRepository repository) : C
 
     [HttpGet("order-templates")]
     [Authorize]
-    public async Task<IActionResult> Templates(CancellationToken ct) => await ExecuteForCurrentAsync(async id => (await repository.GetOrderTemplatesAsync(id, ct)) is { } templates ? Ok(new { orderTemplates = templates }) : NotFound(new { message = "User not found" }), ct);
+    public async Task<IActionResult> Templates(CancellationToken ct)
+    {
+        // A platform/control-plane identity is not required to have a row in
+        // the Operational Users table.  The admin UI still calls this legacy
+        // endpoint while opening inventory pages, so an empty template list is
+        // the compatible response instead of a misleading 404.
+        if (HttpContext.Items[CurrentUserContextMiddleware.ContextItemKey] is ICurrentUserContext context
+            && context.IsControlPlaneIdentity)
+        {
+            return Ok(new { orderTemplates = Array.Empty<object>() });
+        }
+
+        return await ExecuteForCurrentAsync(async id =>
+            (await repository.GetOrderTemplatesAsync(id, ct)) is { } templates
+                ? Ok(new { orderTemplates = templates })
+                : NotFound(new { message = "User not found" }), ct);
+    }
 
     [HttpPost("order-templates")]
     [Authorize]
@@ -58,7 +86,16 @@ public sealed class UserProfileController(IUserProfileRepository repository) : C
 
     [HttpGet("my-stations")]
     [Authorize]
-    public async Task<IActionResult> MyStations(CancellationToken ct) => await ExecuteForCurrentAsync(async id => (await repository.FindProfileAsync(id, ct)) is { } p ? Ok(new { stations = p.Stations }) : NotFound(new { message = "Không tìm thấy người dùng" }), ct);
+    public async Task<IActionResult> MyStations(CancellationToken ct)
+    {
+        if (HttpContext.Items[CurrentUserContextMiddleware.ContextItemKey] is ICurrentUserContext context
+            && context.IsControlPlaneIdentity)
+        {
+            return Ok(new { stations = Array.Empty<string>() });
+        }
+
+        return await ExecuteForCurrentAsync(async id => (await repository.FindProfileAsync(id, ct)) is { } p ? Ok(new { stations = p.Stations }) : NotFound(new { message = "Không tìm thấy người dùng" }), ct);
+    }
 
     private async Task<IActionResult> ExecuteForCurrentAsync(Func<string, Task<IActionResult>> operation, CancellationToken ct)
     {
@@ -72,4 +109,78 @@ public sealed class UserProfileController(IUserProfileRepository repository) : C
         return addresses is null ? NotFound(new { message = "Không tìm thấy người dùng" }) : addresses.Count == 0 ? NotFound(new { message = "Không tìm thấy địa chỉ" }) : new OkObjectResult(new { message, addresses });
     }
     private static UserTemplateProduct[] MapProducts(IReadOnlyList<TemplateProductRequest>? values) => values?.Select(x => new UserTemplateProduct(x.ProductId, x.Quantity ?? 1)).ToArray() ?? [];
+
+    private static object ToControlPlaneProfile(ICurrentUserContext context)
+    {
+        string[] permissions = ActivePermissions(context);
+        return new
+        {
+            _id = context.UserId?.ToString(),
+            email = context.Email,
+            phone = context.Phone ?? string.Empty,
+            name = context.DisplayName,
+            role = context.IsPlatformSuperAdmin ? SystemRoles.SuperAdmin : SystemRoles.Staff,
+            functions = Array.Empty<string>(),
+            permissions,
+            station = Array.Empty<string>(),
+            addresses = Array.Empty<object>(),
+            orderTemplate = Array.Empty<object>(),
+            isControlPlaneIdentity = true,
+            isPlatformSuperAdmin = context.IsPlatformSuperAdmin,
+            activeCompanyId = context.ActiveCompanyId,
+            activeBranchId = context.ActiveBranchId,
+            requiresWorkspaceSelection = !context.IsPlatformSuperAdmin
+                && !context.ActiveCompanyId.HasValue,
+            companyMemberships = context.CompanyMemberships.Select(company => new
+            {
+                companyId = company.CompanyId,
+                companyCode = company.CompanyCode,
+                name = company.CompanyDisplayName,
+                roles = company.Roles,
+                permissions = company.Permissions,
+                isActive = context.ActiveCompanyId == company.CompanyId,
+            }).ToArray(),
+            branchMemberships = context.BranchMemberships.Select(branch => new
+            {
+                companyId = branch.CompanyId,
+                branchId = branch.BranchId,
+                branchCode = branch.BranchCode,
+                name = branch.BranchName,
+                roles = branch.Roles,
+                permissions = branch.Permissions,
+                isPrimaryBranch = branch.IsPrimaryBranch,
+                isActive = context.ActiveBranchId == branch.BranchId,
+            }).ToArray(),
+        };
+    }
+
+    private static string[] ActivePermissions(ICurrentUserContext context)
+    {
+        if (context.IsPlatformSuperAdmin)
+        {
+            return context.Permissions.ToArray();
+        }
+
+        if (context.ActiveBranchId is Guid activeBranchId)
+        {
+            BranchMembershipContext? branch = context.BranchMemberships.FirstOrDefault(item => item.BranchId == activeBranchId);
+            if (branch is null) return [];
+
+            IEnumerable<string> companyPermissions = context.CompanyMemberships
+                .Where(item => item.CompanyId == branch.CompanyId)
+                .SelectMany(item => item.Permissions);
+            return branch.Permissions.Concat(companyPermissions).Distinct(StringComparer.Ordinal).ToArray();
+        }
+
+        if (context.ActiveCompanyId is Guid activeCompanyId)
+        {
+            return context.CompanyMemberships
+                .Where(item => item.CompanyId == activeCompanyId)
+                .SelectMany(item => item.Permissions)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        return [];
+    }
 }

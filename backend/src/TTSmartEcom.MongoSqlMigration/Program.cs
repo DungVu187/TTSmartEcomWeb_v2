@@ -62,6 +62,7 @@ if (args.Length == 4 && string.Equals(args[0], "backfill-products", StringCompar
 if (args.Length == 4 && string.Equals(args[0], "backfill-orders", StringComparison.OrdinalIgnoreCase))
 {
     await BackfillOrdersAsync(args[1], args[2], args[3]);
+    await BackfillInventoryTransactionDatesAsync(args[1], args[2], args[3]);
     return;
 }
 
@@ -143,6 +144,7 @@ await BackfillUsersAsync(args[1], args[2], args[3]);
 await BackfillStationsAsync(args[1], args[2], args[3]);
 await BackfillProductsAsync(args[1], args[2], args[3]);
 await BackfillOrdersAsync(args[1], args[2], args[3]);
+await BackfillInventoryTransactionDatesAsync(args[1], args[2], args[3]);
 await BackfillStorageHistoryAsync(args[1], args[2], args[3]);
 await BackfillIntegrationsAsync(args[1], args[2], args[3]);
 
@@ -175,12 +177,12 @@ static async Task<string> MapAsync(SqlConnection c,SqlTransaction t,Guid run,str
         if(d.TryGetValue("cartItems",out var cart)&&cart.IsBsonArray) for(var i=0;i<cart.AsBsonArray.Count;i++) if(cart[i].IsBsonDocument){var x=cart[i].AsBsonDocument;var pk=Key(x);await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.SalesOrderItems WHERE PublicId=@p) INSERT dbo.SalesOrderItems(SalesOrderItemId,PublicId,SalesOrderId,SourceProductId,VariantIndex,Quantity,DetailsJson,SortOrder,Version) VALUES(@i,@p,@o,@s,@v,@q,@j,@n,0);",("@i",GuidFrom("sales-line:"+pk)),("@p",pk),("@o",id),("@s",Text(x,"productId")),("@v",(int)Long(x,"variantIndex")),("@q",Decimal(x,"quantity")),("@j",RedactedJson(x)),("@n",i));}
         return "SalesOrders";
       case "iporders": case "eporders":
-        await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.InventoryOrders WHERE PublicId=@p) INSERT dbo.InventoryOrders(InventoryOrderId,PublicId,Direction,OrderName,Note,UserName,Total,TotalRaw,Status,ImagesJson,Version) VALUES(@i,@p,@d,@n,@no,@u,@t,@tr,@s,@im,@v);",("@i",id),("@p",publicId),("@d",col=="iporders"?"Import":"Export"),("@n",Text(d,"orderName")),("@no",Text(d,"note")),("@u",Text(d,"userName")),("@t",Decimal(d,"total")),("@tr",Text(d,"total")),("@s",Bool(d,"status")),("@im",Json(d,"images")),("@v",v));
+        await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.InventoryOrders WHERE PublicId=@p) INSERT dbo.InventoryOrders(InventoryOrderId,PublicId,Direction,OrderName,Note,UserName,Total,TotalRaw,Status,TransactionDateUtc,ImagesJson,Version) VALUES(@i,@p,@d,@n,@no,@u,@t,@tr,@s,@transactionDate,@im,@v);",("@i",id),("@p",publicId),("@d",col=="iporders"?"Import":"Export"),("@n",Text(d,"orderName")),("@no",Text(d,"note")),("@u",Text(d,"userName")),("@t",Decimal(d,"total")),("@tr",Text(d,"total")),("@s",Bool(d,"status")),("@transactionDate",(object?)(Date(d,"transactionDate")??Date(d,"createdAt"))??DBNull.Value),("@im",Json(d,"images")),("@v",v));
         if(d.TryGetValue("productList",out var lines)&&lines.IsBsonArray) for(var i=0;i<lines.AsBsonArray.Count;i++) if(lines[i].IsBsonDocument){var x=lines[i].AsBsonDocument;var pk=Key(x);await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.InventoryOrderItems WHERE PublicId=@p) INSERT dbo.InventoryOrderItems(InventoryOrderItemId,PublicId,InventoryOrderId,SourceProductId,Price,PriceRaw,Vat,VatRaw,Quantity,ProgressQuantity,StockAppliedQuantity,Unit,Note,DetailsJson,SortOrder,Version) VALUES(@i,@p,@o,@s,@a,@ar,@v,@vr,@q,@pr,@sa,@u,@n,@j,@x,0);",("@i",GuidFrom("inventory-line:"+pk)),("@p",pk),("@o",id),("@s",Text(x,"productId")),("@a",Decimal(x,"price")),("@ar",Text(x,"price")),("@v",Decimal(x,"vat")),("@vr",Text(x,"vat")),("@q",Decimal(x,"quantity")),("@pr",Decimal(x,col=="iporders"?"quantityRe":"exportedQuantity")),("@sa",Decimal(x,"stockAppliedQuantity")),("@u",Text(x,"unit")),("@n",Text(x,"note")),("@j",RedactedJson(x)),("@x",i));}
         return "InventoryOrders";
       case "activitylogs": await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.ActivityLogs WHERE PublicId=@p) INSERT dbo.ActivityLogs(ActivityLogId,PublicId,Action,ActorName,DetailsJson,CreatedAtUtc,Version) VALUES(@i,@p,@a,@n,@j,@d,@v);",("@i",id),("@p",publicId),("@a",Text(d,"action")),("@n",Text(d,"userName")),("@j",json),("@d",Date(d,"createdAt")),("@v",v)); return "ActivityLogs";
       case "storagehistories":
-        await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.StockOperations WHERE PublicId=@p) INSERT dbo.StockOperations(StockOperationId,PublicId,OperationType,SourceReference,OccurredAtUtc,DetailsJson,Version) VALUES(@i,@p,@t,@r,@d,@j,@v);",("@i",id),("@p",publicId),("@t",Text(d,"source")),("@r",Text(d,"orderId")),("@d",Date(d,"createdAt")),("@j",json),("@v",v));
+        await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.StockOperations WHERE PublicId=@p) INSERT dbo.StockOperations(StockOperationId,PublicId,OperationType,SourceReference,OccurredAtUtc,TransactionDateUtc,DetailsJson,Version) VALUES(@i,@p,@t,@r,@d,@transactionDate,@j,@v);",("@i",id),("@p",publicId),("@t",Text(d,"source")),("@r",Text(d,"orderId")),("@d",Date(d,"createdAt")),("@transactionDate",(object?)(Date(d,"transactionDate")??Date(d,"createdAt"))??DBNull.Value),("@j",json),("@v",v));
         await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.StockMovementLines WHERE PublicId=@p) INSERT dbo.StockMovementLines(StockMovementLineId,PublicId,StockOperationId,SourceProductId,Quantity,DetailsJson,SortOrder,Version) VALUES(@i,@p,@o,@s,@q,@j,0,0);",("@i",GuidFrom("stock-line:"+publicId)),("@p",Hash("stock-line:"+publicId).Substring(0,24).ToLowerInvariant()),("@o",id),("@s",Text(d,"productId")),("@q",Decimal(d,"quantity")),("@j",json)); return "StockOperations";
       case "manages": await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.StorefrontSettings WHERE PublicId=@p) INSERT dbo.StorefrontSettings(StorefrontSettingsId,PublicId,ConfigurationJson,Version) VALUES(@i,@p,@j,@v);",("@i",id),("@p",publicId),("@j",json),("@v",v)); return "StorefrontSettings";
       case "voicevocabs": await Exec(c,t,"IF NOT EXISTS(SELECT 1 FROM dbo.VoiceSettings WHERE PublicId=@p) INSERT dbo.VoiceSettings(VoiceSettingsId,PublicId,ConfigurationJson,Version) VALUES(@i,@p,@j,@v);",("@i",id),("@p",publicId),("@j",json),("@v",v)); return "VoiceSettings";
@@ -327,9 +329,9 @@ static async Task<long> ReconcileTimestampsAsync(IMongoDatabase mongo, SqlConnec
         ("types", "ProductTypes", new[] { ("updatedAt", "SourceUpdatedAtUtc") }),
         ("products", "Products", new[] { ("createdAt", "SourceCreatedAtUtc"), ("updatedAt", "SourceUpdatedAtUtc") }),
         ("orders", "SalesOrders", new[] { ("createdAt", "SourceCreatedAtUtc"), ("updatedAt", "SourceUpdatedAtUtc"), ("completedAt", "CompletedAtUtc") }),
-        ("iporders", "InventoryOrders", new[] { ("createdAt", "SourceCreatedAtUtc"), ("updatedAt", "SourceUpdatedAtUtc"), ("completedAt", "CompletedAtUtc") }),
-        ("eporders", "InventoryOrders", new[] { ("createdAt", "SourceCreatedAtUtc"), ("updatedAt", "SourceUpdatedAtUtc"), ("completedAt", "CompletedAtUtc") }),
-        ("storagehistories", "StockOperations", new[] { ("createdAt", "SourceCreatedAtUtc"), ("updatedAt", "SourceUpdatedAtUtc"), ("createdAt", "OccurredAtUtc") })
+        ("iporders", "InventoryOrders", new[] { ("createdAt", "SourceCreatedAtUtc"), ("updatedAt", "SourceUpdatedAtUtc"), ("completedAt", "CompletedAtUtc"), ("transactionDate", "TransactionDateUtc") }),
+        ("eporders", "InventoryOrders", new[] { ("createdAt", "SourceCreatedAtUtc"), ("updatedAt", "SourceUpdatedAtUtc"), ("completedAt", "CompletedAtUtc"), ("transactionDate", "TransactionDateUtc") }),
+        ("storagehistories", "StockOperations", new[] { ("createdAt", "SourceCreatedAtUtc"), ("updatedAt", "SourceUpdatedAtUtc"), ("createdAt", "OccurredAtUtc"), ("transactionDate", "TransactionDateUtc") })
     };
     long mismatch = 0;
     foreach ((string collection, string table, (string Source, string Target)[] fields) in checks)
@@ -345,6 +347,7 @@ static async Task<long> ReconcileTimestampsAsync(IMongoDatabase mongo, SqlConnec
             for (int index = 0; index < fields.Length; index++)
             {
                 DateTime? expected = Date(document, fields[index].Source);
+                if (!expected.HasValue && string.Equals(fields[index].Target, "TransactionDateUtc", StringComparison.Ordinal)) expected = Date(document, "createdAt");
                 DateTime? actual = reader.IsDBNull(index) ? null : DateTime.SpecifyKind(reader.GetDateTime(index), DateTimeKind.Utc);
                 if (expected?.Ticks != actual?.Ticks) mismatch++;
             }
@@ -711,6 +714,22 @@ static async Task<long> BackfillInventoryAsync(IMongoDatabase mongo, SqlConnecti
     Guid run=await RunAsync(sql,sourceDatabase,collection);long lines=0;using IAsyncCursor<BsonDocument> cursor=await mongo.GetCollection<BsonDocument>(collection).Find(FilterDefinition<BsonDocument>.Empty).ToCursorAsync();
     while(await cursor.MoveNextAsync())foreach(BsonDocument source in cursor.Current){string publicId=Key(source);await using SqlTransaction tx=(SqlTransaction)await sql.BeginTransactionAsync();try{Guid? orderId=await FindIdAsync(sql,tx,"SELECT InventoryOrderId FROM dbo.InventoryOrders WHERE PublicId=@id;",publicId);if(orderId is null)throw new InvalidOperationException("Inventory order target is missing.");await Exec(sql,tx,"UPDATE dbo.InventoryOrders SET CompletedAtUtc=@completed,SourceCreatedAtUtc=@created,SourceUpdatedAtUtc=@updated,ImagesJson=@images,Version=Version+1 WHERE InventoryOrderId=@id AND Direction=@direction;",("@completed",(object?)Date(source,"completedAt")??DBNull.Value),("@created",(object?)Date(source,"createdAt")??DBNull.Value),("@updated",(object?)Date(source,"updatedAt")??DBNull.Value),("@images",ToJsonForField(source,"images","[]")),("@id",orderId.Value),("@direction",direction));await MappingAsync(sql,tx,run,sourceDatabase,collection,publicId,"","InventoryOrders",orderId);int index=0;foreach(BsonValue raw in Values(source,"productList")){if(!raw.IsBsonDocument){index++;continue;}BsonDocument item=raw.AsBsonDocument;string itemPublicId=NestedKey(item,index);Guid? itemId=await FindIdAsync(sql,tx,"SELECT InventoryOrderItemId FROM dbo.InventoryOrderItems WHERE PublicId=@id;",itemPublicId);if(itemId is null)throw new InvalidOperationException("Inventory item target is missing.");string sourceProduct=Text(item,"productId")??string.Empty;(Guid? product,_)=await FindProductAsync(sql,tx,sourceProduct,null);await Exec(sql,tx,"UPDATE dbo.InventoryOrderItems SET ProductId=@product,ProductVariantId=NULL,SourceProductId=@source,Price=@price,PriceRaw=@priceRaw,Vat=@vat,VatRaw=@vatRaw,Quantity=@quantity,ProgressQuantity=@progress,StockAppliedQuantity=@applied,Unit=@unit,Note=@note,DetailsJson=@details,SortOrder=@sort,Version=Version+1 WHERE InventoryOrderItemId=@id;",("@product",(object?)product??DBNull.Value),("@source",(object?)sourceProduct??DBNull.Value),("@price",(object?)DecimalValue(item,"price")??DBNull.Value),("@priceRaw",(object?)Text(item,"price")??DBNull.Value),("@vat",(object?)DecimalValue(item,"vat")??DBNull.Value),("@vatRaw",(object?)Text(item,"vat")??DBNull.Value),("@quantity",(object?)DecimalValue(item,"quantity")??DBNull.Value),("@progress",(object?)DecimalValue(item,progressField)??DBNull.Value),("@applied",(object?)DecimalValue(item,"stockAppliedQuantity")??DBNull.Value),("@unit",(object?)Text(item,"unit")??DBNull.Value),("@note",(object?)Text(item,"note")??DBNull.Value),("@details",ToJsonNode(item)!.ToJsonString()),("@sort",index),("@id",itemId.Value));await MappingAsync(sql,tx,run,sourceDatabase,collection,publicId,$"productList[{itemPublicId}]","InventoryOrderItems",itemId);lines++;index++;}await tx.CommitAsync();}catch{await tx.RollbackAsync();throw;}}
     await CompleteAsync(sql,run,0);return lines;
+}
+
+static async Task BackfillInventoryTransactionDatesAsync(string mongoUri,string sourceDatabase,string sqlConnectionString)
+{
+    MongoClientSettings settings=MongoClientSettings.FromConnectionString(mongoUri);settings.ReadPreference=ReadPreference.SecondaryPreferred;
+    IMongoDatabase mongo=new MongoClient(settings).GetDatabase(sourceDatabase);
+    await using SqlConnection sql=new(sqlConnectionString);await sql.OpenAsync();
+    foreach(string collection in new[]{"iporders","eporders"})
+    {
+        using IAsyncCursor<BsonDocument> cursor=await mongo.GetCollection<BsonDocument>(collection).Find(FilterDefinition<BsonDocument>.Empty).ToCursorAsync();
+        while(await cursor.MoveNextAsync()) foreach(BsonDocument source in cursor.Current)
+        {
+            DateTime? transactionDate=Date(source,"transactionDate")??Date(source,"createdAt");
+            await Exec(sql,null,"UPDATE dbo.InventoryOrders SET TransactionDateUtc=@date WHERE PublicId=@id AND Direction=@direction;",("@date",(object?)transactionDate??DBNull.Value),("@id",Key(source)),("@direction",collection=="iporders"?"Import":"Export"));
+        }
+    }
 }
 
 static async Task BackfillStorageHistoryAsync(string mongoUri,string sourceDatabase,string sqlConnectionString)

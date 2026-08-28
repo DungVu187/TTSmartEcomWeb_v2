@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string] $ServerInstance = 'DESKTOP-5O6VV3J\SQLEXPRESS',
-    [ValidateSet('ControlPlane','Operational')]
+    [ValidateSet('ControlPlane','Operational','Company')]
     [string] $ModuleCode
 )
 
@@ -9,9 +9,10 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Resolve-MigrationLayout.ps1')
 $sqlCmd = Resolve-SqlServerV1SqlCmd
 if ([string]::IsNullOrWhiteSpace($ModuleCode)) { throw 'Phai chi ro module kiem thu checksum.' }
-$databaseName = if ($ModuleCode -eq 'ControlPlane') { 'TTSmart_Control_V1_Test' } else { 'TTSmart_Operational_V1_Test' }
-$migration = if ($ModuleCode -eq 'ControlPlane') { '001_CreateSystemAndCompanyTables.sql' } else { '001_CreateSystemAndMigrationTables.sql' }
-$migrationPath = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) ($ModuleCode -replace 'ControlPlane','control-plane' -replace 'Operational','operational')) $migration
+$databaseName = switch ($ModuleCode) { 'ControlPlane' { 'TTSmart_Control_V1_Test' } 'Operational' { 'TTSmart_Operational_V1_Test' } 'Company' { 'TTSmart_Company_V1_Test' } }
+$migration = switch ($ModuleCode) { 'ControlPlane' { '001_CreateSystemAndCompanyTables.sql' } 'Operational' { '001_CreateSystemAndMigrationTables.sql' } 'Company' { '001_CreateSystemMigrationAndCatalog.sql' } }
+$directory = switch ($ModuleCode) { 'ControlPlane' { 'control-plane' } 'Operational' { 'operational' } 'Company' { 'company' } }
+$migrationPath = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) $directory) $migration
 $badChecksum = ('0' * 64)
 $source = Get-Content -LiteralPath $migrationPath -Raw
 $match = [regex]::Match($source, "(?i)THROW\s+(\d+)\s*,\s*N'[^']*checksum")

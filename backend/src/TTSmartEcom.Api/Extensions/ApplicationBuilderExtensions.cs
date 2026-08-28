@@ -31,6 +31,7 @@ public static class ApplicationBuilderExtensions
         app.UseStaticFiles();
         app.UseTtsmartPublicUploadFiles();
         app.UseAuthentication();
+        app.UseMiddleware<CurrentUserContextMiddleware>();
         app.UseMiddleware<LegacyPrincipalMiddleware>();
         app.UseAuthorization();
         app.UseTtsmartProtectedInvoiceFiles();

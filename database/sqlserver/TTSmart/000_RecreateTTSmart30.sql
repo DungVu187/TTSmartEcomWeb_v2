@@ -135,7 +135,7 @@ CREATE TABLE dbo.SalesOrderItems (
 CREATE TABLE dbo.InventoryOrders (
     InventoryOrderId uniqueidentifier NOT NULL PRIMARY KEY, PublicId char(24) NOT NULL UNIQUE, Direction nvarchar(10) NOT NULL,
     OrderName nvarchar(300) NULL, Note nvarchar(max) NULL, UserName nvarchar(300) NULL, Total decimal(19,4) NULL, TotalRaw nvarchar(200) NULL,
-    Status bit NULL, CompletedAtUtc datetime2(7) NULL, ImagesJson nvarchar(max) NULL, SourceCreatedAtUtc datetime2(7) NULL, SourceUpdatedAtUtc datetime2(7) NULL,
+    Status bit NULL, TransactionDateUtc datetime2(7) NULL, CompletedAtUtc datetime2(7) NULL, ImagesJson nvarchar(max) NULL, SourceCreatedAtUtc datetime2(7) NULL, SourceUpdatedAtUtc datetime2(7) NULL,
     Version bigint NOT NULL CONSTRAINT DF_InventoryOrders_Version DEFAULT 0, RowVersion rowversion NOT NULL,
     CONSTRAINT CK_InventoryOrders_Direction CHECK(Direction IN(N'Import',N'Export')), CONSTRAINT CK_InventoryOrders_Version CHECK (Version >= 0)
 );
@@ -150,7 +150,7 @@ CREATE TABLE dbo.InventoryOrderItems (
 );
 CREATE TABLE dbo.StockOperations (
     StockOperationId uniqueidentifier NOT NULL PRIMARY KEY, PublicId char(24) NOT NULL UNIQUE, OperationType nvarchar(100) NULL,
-    SourceReference nvarchar(200) NULL, OccurredAtUtc datetime2(7) NULL, DetailsJson nvarchar(max) NULL,
+    SourceReference nvarchar(200) NULL, OccurredAtUtc datetime2(7) NULL, TransactionDateUtc datetime2(7) NULL, DetailsJson nvarchar(max) NULL,
     Version bigint NOT NULL CONSTRAINT DF_StockOperations_Version DEFAULT 0, RowVersion rowversion NOT NULL, CONSTRAINT CK_StockOperations_Version CHECK (Version >= 0)
 );
 CREATE TABLE dbo.StockMovementLines (

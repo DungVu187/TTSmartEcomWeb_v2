@@ -1,5 +1,7 @@
 # Khảo sát MongoDB và kiến trúc dữ liệu đích SQL Server
 
+> **Quyết định hiện hành ngày 2026-08-24:** dữ liệu khảo sát/contract trong tài liệu vẫn có giá trị, nhưng kiến trúc authoritative nay là Platform DB → Company DB dùng chung Product Master → Branch DB chứa giao dịch/tồn kho. Các đoạn phủ nhận Company DB hoặc cho phép catalog Branch độc lập là lịch sử. Xem `../architecture/SQLSERVER_TARGET_ARCHITECTURE.md`.
+
 > Cập nhật ownership ngày 2026-08-14: tài liệu này giữ giá trị kiểm kê code/contract, nhưng kiến trúc cũ coi `[TTSmart]` chủ yếu là Station/storefront không còn đúng. `[TTSmart]` được xác nhận là database bán hàng đầy đủ. Phương án thay thế được ghi tại `TTSMART_CODE_AND_DATA_DISCOVERY.md` và `SQLSERVER_TTSMART_SCHEMA_DESIGN.md`.
 
 ## 1. Phạm vi, baseline và giới hạn bằng chứng
@@ -336,7 +338,7 @@ flowchart TD
 - `[ttsmart.com.vn]` là database tổng duy nhất, chứa control plane và Product/Customer master dùng chung theo `CompanyId`; không chứa transaction/tồn kho chi nhánh hoặc Station.
 - `[TTSmart]` là database duy nhất cho Station, storefront, provider metadata và module đặc thù TTSmart; tenant khách không truy cập database này.
 - `[{BranchCode}_online]` là database vật lý riêng từng Branch, chứa Core WMS operational data và phải được tạo từ cùng `BranchDbTemplate`/schema version.
-- Không tạo `CompanyDb`. Tính năng tùy chọn không được làm lệch schema một BranchDb; bật qua `CompanyFeatures`/`BranchFeatures` trên schema chung hoặc một module boundary riêng.
+- **Quyết định lịch sử đã bị thay thế ngày 2026-08-24:** không tạo `CompanyDb`. Phần còn giá trị là tính năng tùy chọn không được làm lệch schema tùy tenant; kiến trúc hiện hành có Company DB và Branch DB với hai schema/version riêng.
 - Không có FK vật lý xuyên database; external GUID + application validation + outbox/inbox/idempotency.
 
 ### 5.2 ERD `[ttsmart.com.vn]`

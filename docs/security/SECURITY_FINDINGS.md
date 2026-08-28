@@ -30,6 +30,34 @@ Bản chụp: 2026-08-13. Các giá trị đã được redact. Finding dựa tr
 - Tác động còn lại: tồn dư ExcelJS/UUID không còn ở mức High và được theo dõi riêng tại `SEC-M-008`; npm chỉ đề xuất hạ ExcelJS xuống `3.4.0`, nên không áp dụng auto-fix gây phá tương thích.
 - Trạng thái: Đã xử lý và đóng ở mức High. Không còn finding Critical/High từ dependency tại checkpoint này.
 
+### SEC-H-004 — MongoDB archive nằm trong workspace V2
+
+- Bằng chứng: file untracked `Ecom_2026-08-18_ 400.archive.gz` nằm ngay root repository, dung lượng 123.344.022 byte, SHA-256 `CBED3D34CF74702B78A771D21BA80F5122B4A396C55DC76C334B064AAB0775DB`. Header giải nén có metadata đặc trưng của MongoDB archive; audit không đọc document hoặc nội dung payload.
+- Tác động: dump có thể chứa PII, password hash, token/provider secret hoặc dữ liệu nghiệp vụ và đang nằm sai ranh giới lưu trữ dù chưa được Git theo dõi. Việc vô tình đóng gói, backup hoặc chia sẻ workspace có thể làm lộ dữ liệu.
+- Khắc phục: owner phải xác nhận đây là bản sao tổng hợp hay dữ liệu thật; nếu là dữ liệu thật, chuyển sang kho migration được phê duyệt có kiểm soát truy cập/retention rồi xóa an toàn khỏi workspace. Không commit, upload hoặc mở rộng nội dung để triage.
+- Trạng thái: Đang mở; chặn mọi tuyên bố cutover hoặc chia sẻ workspace.
+
+### SEC-H-005 — Scope Company/Branch chưa điều khiển database Operational
+
+- Bằng chứng: `CurrentUserContextMiddleware` xác minh `X-Company-Id`/`X-Branch-Id`, nhưng `OperationalDbConnectionFactory` luôn dùng một `OperationalConnectionString` tĩnh và `DefaultSqlConnectionFactory` chuyển toàn bộ repository vào connection này. Không có lookup `BranchDatabases`, database assignment hoặc factory request-scoped theo active Branch.
+- Tác động: khi user chọn Branch B, authorization có thể cho phép đúng membership B nhưng nghiệp vụ vẫn đọc/ghi database Operational cấu hình chung. Nếu triển khai đa chi nhánh ở trạng thái này, ranh giới dữ liệu vật lý không khớp ranh giới quyền và có nguy cơ truy cập chéo chi nhánh.
+- Khắc phục: triển khai resolver server-side từ active Company/Branch sang registry đã kiểm tra quyền, trạng thái provisioning, release/schema và secret reference; tạo connection request-scoped sau allowlist; thêm integration test hai database Operational cô lập chứng minh không đọc/ghi chéo.
+- Trạng thái: Đang mở; chặn rollout đa công ty/chi nhánh và cutover.
+
+### SEC-H-006 — Phiên Control Plane không bị thu hồi khi credential thay đổi
+
+- Bằng chứng: `SecurityStamp` và `MustChangePassword` được đọc từ SQL nhưng không được đưa vào `ICurrentUserContext`, JWT hoặc validation mỗi request. Cookie Control Plane chỉ mang `userId`, `phone`, `role`, scope và `iat`; middleware tải lại status/membership nhưng không so khớp security stamp. Cơ chế `PasswordChangedAt` chỉ áp dụng cho identity Operational.
+- Tác động: token đã phát hành có thể tiếp tục hoạt động tối đa thời lượng phiên sau khi đổi/reset password hoặc xoay security stamp; tài khoản có `MustChangePassword = 1` vẫn đăng nhập như bình thường.
+- Khắc phục: chốt contract bắt buộc đổi mật khẩu, gắn phiên với `SecurityStamp` hoặc session version đáng tin cậy, kiểm tra lại ở HTTP và Socket.IO, đồng thời có test thu hồi sau password reset/stamp rotation.
+- Trạng thái: Đang mở; chặn rollout identity Control Plane.
+
+### SEC-H-007 — Runbook `[TTSmart]` có thể chạy script recreate phá hủy dữ liệu
+
+- Bằng chứng: `database/sqlserver/TTSmart/README.md` hướng dẫn chạy mọi `*.sql` theo tên. Cùng thư mục có `000_RecreateTTSmart30.sql`, script hardcode `USE [master]`, chuyển `[TTSmart]` sang single-user, drop rồi tạo lại database. Runner `schema-recreate` cũng chạy script này và ghi đè checksum `SchemaVersions` khi khác thay vì từ chối drift; danh sách runner chưa gồm migration 013 mới.
+- Tác động: làm theo runbook có thể xóa toàn bộ `[TTSmart]`; cơ chế cập nhật checksum che drift và tạo trạng thái schema không phản ánh chuỗi migration thực tế.
+- Khắc phục: ngừng dùng wildcard runner cho database thật; tách script destructive khỏi migration directory; chỉ cho recreate đúng database test allowlist; dùng một chuỗi migration version hóa duy nhất với checksum content bất biến, application lock và mismatch fail-closed.
+- Trạng thái: Đang mở; chặn chạy lại schema/cutover trên `[TTSmart]`.
+
 ## Medium
 
 ### SEC-M-001 — Đã có validation upload nhưng độ bao phủ endpoint/lưu trữ chưa được xác minh đầy đủ
@@ -90,6 +118,34 @@ Bản chụp: 2026-08-13. Các giá trị đã được redact. Finding dựa tr
 - Khắc phục: theo dõi bản ExcelJS kéo UUID đã sửa, review release notes và nâng có kiểm soát; không hạ xuống ExcelJS `3.4.0` hoặc chạy `npm audit fix --force` chỉ để làm sạch số audit.
 - Trạng thái: Đang mở ở mức Medium; không phải blocker High nhưng cần triage trước release.
 
+### SEC-M-009 — Thay đổi đường fallback authentication khi tích hợp Control Plane
+
+- Bằng chứng thay đổi: tài khoản có identifier trong Control Plane chỉ được xác thực bằng `ttsmart.com.vn`. Tài khoản legacy trong `TTSmart` chỉ được thử khi identifier không tồn tại trong Control Plane; sai mật khẩu, khóa hoặc inactive không được rơi xuống Operational DB.
+- Tác động tương thích: nếu cùng một số điện thoại/email tồn tại ở cả hai nguồn, mật khẩu Control Plane trở thành authority; đây là thay đổi có chủ đích để không cho phép bypass lockout hoặc password bằng tài khoản trùng trong Operational DB.
+- Bằng chứng kiểm thử: test authentication Control Plane trên SQL Server cô lập và test unit boundary permission đã đạt; chưa xác minh với dữ liệu tài khoản thật hoặc staging.
+- Trạng thái: Đã xử lý trong checkpoint local; cần owner/security phê duyệt chính sách trùng identifier trước rollout.
+
+### SEC-M-010 — Endpoint self-service và role legacy chưa tương thích với Control Plane
+
+- Bằng chứng: `/users/change-password`, update profile/address/template và các mutation user self-service vẫn dùng `IUserProfileRepository` của Operational với GUID Control Plane ở vị trí `PublicId char(24)`, nên trả 404. Projection profile/JWT đổi mọi Control Plane user không phải platform SuperAdmin thành role `staff`; frontend `adminOnly` và các endpoint `[Authorize(Roles = "superadmin,admin")]` vì vậy chặn Company Admin khỏi account/Zalo/Telegram bất kể permission scope.
+- Tác động: user Control Plane đăng nhập được nhưng không tự đổi mật khẩu/cập nhật hồ sơ và có menu/API không nhất quán với role Company.
+- Khắc phục: tách use case profile/password Control Plane khỏi Operational local identity; định nghĩa mapping role/permission rõ cho endpoint legacy hoặc thay role gate bằng permission scope đã duyệt; thêm contract test dương tính cho Company Admin và Branch Staff.
+- Trạng thái: Đang mở.
+
+### SEC-M-011 — `ScopeAuthorizeAttribute` chưa được nối vào endpoint và có nhánh bỏ qua action
+
+- Bằng chứng: không có controller/action nào gắn `[ScopeAuthorize]`. Trong attribute, nhánh `IsPlatformSuperAdmin` `return` trực tiếp mà không gọi `next()`, nên nếu bắt đầu dùng thì SuperAdmin nhận response rỗng thay vì action được thực thi. Test hiện chỉ kiểm tra service scope thuần, không chạy action filter end-to-end.
+- Tác động: tài liệu đang mô tả object-scope đã được attribute bảo vệ trong khi code chưa có callsite; defect latent có thể làm hỏng endpoint khi áp dụng.
+- Khắc phục: sửa pipeline filter, gắn vào từng contract mới có target Company/Branch, tải target object server-side và thêm test MVC end-to-end cho allow/deny/SuperAdmin.
+- Trạng thái: Đang mở.
+
+### SEC-M-012 — Tài liệu migration đang chứa định danh tài khoản thật
+
+- Bằng chứng: `MIGRATION_STATUS.md` ghi trực tiếp GUID và số điện thoại của tài khoản Super Admin đã chuyển. Baseline repo cấm xuất PII vào tài liệu/evidence.
+- Tác động: tài liệu Git có thể trở thành kênh phát tán định danh cá nhân và làm khó retention/redaction.
+- Khắc phục: thay bằng định danh synthetic hoặc bằng chứng aggregate/checksum đã redact; rà lịch sử Git nếu nội dung từng được commit.
+- Trạng thái: Đang mở.
+
 ## Mức Low / vệ sinh bảo mật
 
 - `appsettings.json` development chứa các giá trị placeholder Mongo/JWT local. Deployment phải ghi đè chúng và nên fail closed khi gặp placeholder.
@@ -106,6 +162,6 @@ Bản chụp: 2026-08-13. Các giá trị đã được redact. Finding dựa tr
 - CORS allowlist cùng kiểm thử CSRF khớp origin chính xác cho Origin không đáng tin cậy, thiếu nguồn gốc trình duyệt, Origin được phép, origin cùng site nhưng khác origin và Fetch Metadata cùng origin. Forwarded headers chỉ được bật khi có allowlist proxy/network hợp lệ, với giới hạn hop và test cấu hình .NET 10.
 - Unit test validation file cho chữ ký PDF, extension/MIME không khớp, path traversal, chữ ký ảnh sai và kích thước.
 - Test hình dạng liveness an toàn và redaction route không xác định.
-- Cổng kiểm tra backend đầy đủ đạt 332/332 test: Unit 231, Contract 53, Integration 16 và Security 32.
+- Checkpoint Phase 3A chạy với SQL Server test cô lập đạt 362/362 test: Unit 245, Contract 53, Integration 27 và Security 37. Đây không phải bằng chứng staging/provider/E2E.
 
 Các biện pháp kiểm soát này đã đóng `SEC-H-002` và `SEC-H-003`. `SEC-H-001` vẫn mở và chặn cutover; các kết quả local không chứng minh trạng thái sẵn sàng triển khai.

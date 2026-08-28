@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using System.Text.Json;
 
 namespace TTSmartEcom.Api.Contracts.Inventory;
 
@@ -16,7 +17,8 @@ public sealed record InventoryOrderLineRequest(
     [param: StringLength(100)] string? Vat = null,
     bool? Status = null,
     bool? SkipStockUpdate = null,
-    bool? IsAIScan = null);
+    bool? IsAIScan = null,
+    bool? QuantityAdjustment = null);
 
 public sealed record UpdateInventoryOrderLineRequest(
     [param: RegularExpression("^[a-fA-F0-9]{24}$")] string? ProductId = null,
@@ -31,17 +33,20 @@ public sealed record UpdateInventoryOrderLineRequest(
     [param: StringLength(100)] string? Vat = null,
     bool? Status = null,
     bool? SkipStockUpdate = null,
-    bool? IsAIScan = null);
+    bool? IsAIScan = null,
+    bool? QuantityAdjustment = null);
 
 public sealed record CreateInventoryOrderRequest(
     [param: StringLength(200)] string? OrderName,
     [param: StringLength(2_000)] string? Note,
-    [param: MaxLength(500)] IReadOnlyList<InventoryOrderLineRequest>? ProductList);
+    [param: MaxLength(500)] IReadOnlyList<InventoryOrderLineRequest>? ProductList,
+    JsonElement TransactionDate = default);
 
 public sealed record UpdateInventoryOrderRequest(
     [param: StringLength(200)] string? OrderName,
     [param: StringLength(2_000)] string? Note,
-    [param: MaxLength(20)] IReadOnlyList<string>? Images);
+    [param: MaxLength(20)] IReadOnlyList<string>? Images,
+    JsonElement TransactionDate = default);
 
 public sealed record InventoryOrderStatusRequest(bool? Status);
 public sealed record ReorderInventoryOrderRequest([param: Required, MaxLength(500)] IReadOnlyList<InventoryOrderLineRequest> ProductList);

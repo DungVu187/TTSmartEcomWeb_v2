@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string] $ServerInstance = 'DESKTOP-5O6VV3J\SQLEXPRESS',
-    [ValidateSet('TTSmart_Control_V1_Test', 'TTSmart_Operational_V1_Test')]
+    [ValidateSet('TTSmart_Control_V1_Test', 'TTSmart_Operational_V1_Test', 'TTSmart_Company_V1_Test')]
     [string] $DatabaseName
 )
 

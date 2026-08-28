@@ -39,4 +39,6 @@ Checkpoint backend đầy đủ gần nhất đạt 332/332 test: Unit 231, Cont
 
 ## Baseline SQL Server v1 tách biệt
 
-`database/sqlserver/v1/` là DDL test-only cho Đợt 2, gồm ControlPlane và Operational dùng lại cho `[TTSmart]`/branch `_online`. Nó không được reference bởi các project runtime hiện tại; kiến trúc và ranh giới được mô tả tại `SQLSERVER_TARGET_ARCHITECTURE.md`.
+`database/sqlserver/v1/` là DDL test-only lịch sử của Đợt 2, hiện chỉ gồm ControlPlane và một Operational schema từng được dự kiến dùng lại cho `[TTSmart]`/branch `_online`. Quyết định kiến trúc ngày 2026-08-24 đã chuyển đích sang ba vai trò Platform DB, Company DB và Branch DB với Company/Branch schema riêng. DDL v1 hiện hữu chưa tự động đáp ứng đích mới và không được dùng làm bằng chứng implementation đã phù hợp; xem `SQLSERVER_TARGET_ARCHITECTURE.md`.
+
+Company Shared baseline được đặt tại `database/sqlserver/v1/company/`: runner/test-only, không có dependency runtime. Ownership của nó là Product Master dùng chung cấp Company, catalog/file metadata, CompanySettings, audit Company và metadata migration; route runtime Product hiện vẫn dùng persistence đang cấu hình cho đến khi có lát cắt routing Company DB và test contract riêng.
