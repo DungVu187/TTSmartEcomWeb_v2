@@ -2,10 +2,13 @@ using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using TTSmartEcom.Application.Cart;
 using TTSmartEcom.Domain.Cart;
+using TTSmartEcom.Infrastructure.SqlServer.Products;
 
 namespace TTSmartEcom.Infrastructure.SqlServer.Cart;
 
-public sealed class SqlCartRepository(IOperationalDbConnectionFactory factory, ICompanyDbConnectionFactory companyFactory) : ICartRepository, ICartProductCatalog
+public sealed class SqlCartRepository(
+    IOperationalDbConnectionFactory factory,
+    SqlBranchProductReader branchProducts) : ICartRepository, ICartProductCatalog
 {
     public async Task<CartOwner?> FindOwnerAsync(string userId, CancellationToken cancellationToken)
     {
@@ -14,12 +17,14 @@ public sealed class SqlCartRepository(IOperationalDbConnectionFactory factory, I
 
     public async Task<IReadOnlyList<CartItem>> ReplaceAsync(string userId,IReadOnlyList<CartItem> items,int? expectedVersion,CancellationToken cancellationToken)
     {
+        IReadOnlyDictionary<(string ProductId,int VariantIndex),(Guid ProductId,Guid VariantId)> productKeys =
+            await ResolveProductKeysAsync(items,cancellationToken);
         await using SqlConnection c=factory.Create();await c.OpenAsync(cancellationToken);await using SqlTransaction tx=(SqlTransaction)await c.BeginTransactionAsync(cancellationToken);
         try
         {
             IReadOnlyList<CartItem> persisted=items.Select(x=>x with{Id=string.IsNullOrWhiteSpace(x.Id)?SqlPublicIds.New():x.Id}).ToArray();
             Guid owner=await ClaimOwnerAsync(c,tx,userId,expectedVersion,cancellationToken);
-            await ReplaceItemsAsync(c,tx,owner,persisted,cancellationToken);await tx.CommitAsync(cancellationToken);
+            await ReplaceItemsAsync(c,tx,owner,persisted,productKeys,cancellationToken);await tx.CommitAsync(cancellationToken);
             return persisted;
         }
         catch { await tx.RollbackAsync(cancellationToken);throw; }
@@ -27,19 +32,27 @@ public sealed class SqlCartRepository(IOperationalDbConnectionFactory factory, I
 
     public async Task UpdateAfterCustomerOrderAsync(string userId,IReadOnlyList<CartItem> items,string? stationId,int expectedVersion,CancellationToken cancellationToken)
     {
+        IReadOnlyDictionary<(string ProductId,int VariantIndex),(Guid ProductId,Guid VariantId)> productKeys =
+            await ResolveProductKeysAsync(items,cancellationToken);
         await using SqlConnection c=factory.Create();await c.OpenAsync(cancellationToken);await using SqlTransaction tx=(SqlTransaction)await c.BeginTransactionAsync(cancellationToken);
         try
         {
             Guid owner=await ClaimOwnerAsync(c,tx,userId,expectedVersion,cancellationToken);
             if(!string.IsNullOrWhiteSpace(stationId)){await using SqlCommand station=new("UPDATE dbo.Users SET StationIdsJson=(SELECT CASE WHEN StationIdsJson IS NULL OR StationIdsJson NOT LIKE '%'+@station+'%' THEN JSON_MODIFY(COALESCE(StationIdsJson,N'[]'),'append $',@station) ELSE StationIdsJson END) WHERE UserId=@id;",c,tx);station.Parameters.AddWithValue("@station",stationId);station.Parameters.AddWithValue("@id",owner);await station.ExecuteNonQueryAsync(cancellationToken);}
-            await ReplaceItemsAsync(c,tx,owner,items,cancellationToken);await tx.CommitAsync(cancellationToken);
+            await ReplaceItemsAsync(c,tx,owner,items,productKeys,cancellationToken);await tx.CommitAsync(cancellationToken);
         }
         catch { await tx.RollbackAsync(cancellationToken);throw; }
     }
 
     public async Task<ProductVariantSnapshot?> FindVariantAsync(string productId,int variantIndex,CartOwner viewer,CancellationToken cancellationToken)
     {
-        if(variantIndex<0)return null;await using SqlConnection c=companyFactory.Create();await c.OpenAsync(cancellationToken);await using SqlCommand q=new("SELECT p.Name,p.BrandName,p.Code,p.Display,v.PriceRaw,v.QuantityForSale,v.QuantityInStorage,v.DetailsJson FROM dbo.Products p JOIN dbo.ProductVariants v ON v.ProductId=p.ProductId WHERE p.PublicId=@id AND p.IsDeleted=0 AND v.SortOrder=@index;",c);q.Parameters.AddWithValue("@id",productId);q.Parameters.AddWithValue("@index",variantIndex);await using SqlDataReader r=await q.ExecuteReaderAsync(cancellationToken);if(!await r.ReadAsync(cancellationToken)||viewer.Role=="customer"&&(!r.IsDBNull(3)&&!r.GetBoolean(3)))return null;using JsonDocument details=JsonDocument.Parse(r.IsDBNull(7)?"{}":r.GetString(7));JsonElement root=details.RootElement;return new ProductVariantSnapshot(productId,variantIndex,r.IsDBNull(0)?null:r.GetString(0),r.IsDBNull(1)?null:r.GetString(1),r.IsDBNull(2)?null:r.GetString(2),r.IsDBNull(4)?null:r.GetString(4),GetString(root,"imgUrl"),r.IsDBNull(5)?0:(double)r.GetDecimal(5),r.IsDBNull(6)?0:(double)r.GetDecimal(6),GetDouble(root,"earn",25),!r.IsDBNull(3)&&r.GetBoolean(3));
+        SqlBranchProductSnapshot? product = await branchProducts.FindVariantAsync(
+            productId,variantIndex,requireActiveAssignment:true,cancellationToken);
+        if(product is null||viewer.Role=="customer"&&!product.Display)return null;
+        using JsonDocument details=JsonDocument.Parse(product.DetailsJson);JsonElement root=details.RootElement;
+        return new ProductVariantSnapshot(productId,variantIndex,product.ProductName,product.BrandName,product.Code,
+            product.PriceRaw,GetString(root,"imgUrl"),product.QuantityForSale,product.QuantityInStorage,
+            GetDouble(root,"earn",25),product.Display);
     }
 
     public async Task<IReadOnlySet<string>?> GetVisibleProductIdsAsync(CartOwner viewer,CancellationToken cancellationToken)
@@ -51,9 +64,39 @@ public sealed class SqlCartRepository(IOperationalDbConnectionFactory factory, I
     {
         await using SqlCommand q=new(expected.HasValue?"UPDATE dbo.Users SET Version=Version+1 OUTPUT inserted.UserId WHERE PublicId=@id AND IsDeleted=0 AND Version=@version;":"UPDATE dbo.Users SET Version=Version+1 OUTPUT inserted.UserId WHERE PublicId=@id AND IsDeleted=0;",c,tx);q.Parameters.AddWithValue("@id",publicId);if(expected.HasValue)q.Parameters.AddWithValue("@version",expected.Value);object? result=await q.ExecuteScalarAsync(ct);return result is Guid id?id:throw new InvalidOperationException(expected.HasValue?"Cart was changed by another request":"User not found");
     }
-    private static async Task ReplaceItemsAsync(SqlConnection c,SqlTransaction tx,Guid owner,IReadOnlyList<CartItem> items,CancellationToken ct)
+    private static async Task ReplaceItemsAsync(
+        SqlConnection c,
+        SqlTransaction tx,
+        Guid owner,
+        IReadOnlyList<CartItem> items,
+        IReadOnlyDictionary<(string ProductId,int VariantIndex),(Guid ProductId,Guid VariantId)> productKeys,
+        CancellationToken ct)
     {
-        await using(SqlCommand clear=new("DELETE FROM dbo.CartItems WHERE UserId=@user;",c,tx)){clear.Parameters.AddWithValue("@user",owner);await clear.ExecuteNonQueryAsync(ct);}for(int index=0;index<items.Count;index++){CartItem item=items[index];string publicId=string.IsNullOrWhiteSpace(item.Id)?SqlPublicIds.New():item.Id!;await using SqlCommand add=new("INSERT dbo.CartItems(CartItemId,PublicId,UserId,ProductId,ProductVariantId,SourceProductId,VariantIndex,Quantity,Status,SortOrder,Version) VALUES(NEWID(),@id,@user,(SELECT ProductId FROM dbo.Products WHERE PublicId=@product),(SELECT TOP(1) ProductVariantId FROM dbo.ProductVariants WHERE ProductId=(SELECT ProductId FROM dbo.Products WHERE PublicId=@product) AND SortOrder=@variant),@product,@variant,@quantity,@status,@sort,0);",c,tx);add.Parameters.AddWithValue("@id",publicId);add.Parameters.AddWithValue("@user",owner);add.Parameters.AddWithValue("@product",item.ProductId);add.Parameters.AddWithValue("@variant",item.VariantIndex);add.Parameters.AddWithValue("@quantity",item.Quantity);add.Parameters.AddWithValue("@status",item.Status);add.Parameters.AddWithValue("@sort",index);await add.ExecuteNonQueryAsync(ct);}
+        await using(SqlCommand clear=new("DELETE FROM dbo.CartItems WHERE UserId=@user;",c,tx)){clear.Parameters.AddWithValue("@user",owner);await clear.ExecuteNonQueryAsync(ct);}for(int index=0;index<items.Count;index++){CartItem item=items[index];if(!productKeys.TryGetValue((item.ProductId,item.VariantIndex),out var keys))throw new InvalidOperationException("Cart product or variant no longer exists in Company DB.");string publicId=string.IsNullOrWhiteSpace(item.Id)?SqlPublicIds.New():item.Id!;await using SqlCommand add=new("INSERT dbo.CartItems(CartItemId,PublicId,UserId,ProductId,ProductVariantId,SourceProductId,VariantIndex,Quantity,Status,SortOrder,Version) VALUES(NEWID(),@id,@user,@productId,@variantId,@product,@variant,@quantity,@status,@sort,0);",c,tx);add.Parameters.AddWithValue("@id",publicId);add.Parameters.AddWithValue("@user",owner);add.Parameters.AddWithValue("@productId",keys.ProductId);add.Parameters.AddWithValue("@variantId",keys.VariantId);add.Parameters.AddWithValue("@product",item.ProductId);add.Parameters.AddWithValue("@variant",item.VariantIndex);add.Parameters.AddWithValue("@quantity",item.Quantity);add.Parameters.AddWithValue("@status",item.Status);add.Parameters.AddWithValue("@sort",index);await add.ExecuteNonQueryAsync(ct);}
+    }
+
+    private async Task<IReadOnlyDictionary<(string ProductId,int VariantIndex),(Guid ProductId,Guid VariantId)>> ResolveProductKeysAsync(
+        IReadOnlyList<CartItem> items,
+        CancellationToken cancellationToken)
+    {
+        if(items.Count==0)return new Dictionary<(string,int),(Guid,Guid)>();
+        IReadOnlyList<SqlBranchProductSnapshot> products=await branchProducts.FindVariantsAsync(
+            items.Select(item=>item.ProductId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            requireActiveAssignment:false,
+            cancellationToken);
+        return products.ToDictionary(
+            product=>(product.ProductPublicId,product.VariantIndex),
+            product=>(product.ProductId,product.ProductVariantId),
+            ProductVariantKeyComparer.Instance);
+    }
+
+    private sealed class ProductVariantKeyComparer : IEqualityComparer<(string ProductId,int VariantIndex)>
+    {
+        public static readonly ProductVariantKeyComparer Instance=new();
+        public bool Equals((string ProductId,int VariantIndex) x,(string ProductId,int VariantIndex) y)=>
+            x.VariantIndex==y.VariantIndex&&StringComparer.OrdinalIgnoreCase.Equals(x.ProductId,y.ProductId);
+        public int GetHashCode((string ProductId,int VariantIndex) value)=>HashCode.Combine(
+            StringComparer.OrdinalIgnoreCase.GetHashCode(value.ProductId),value.VariantIndex);
     }
     private static async Task<IReadOnlyList<CartItem>> ItemsAsync(SqlConnection c,Guid user,CancellationToken ct){await using SqlCommand q=new("SELECT PublicId,SourceProductId,VariantIndex,Quantity,Status FROM dbo.CartItems WHERE UserId=@user ORDER BY SortOrder;",c);q.Parameters.AddWithValue("@user",user);List<CartItem> items=[];await using SqlDataReader r=await q.ExecuteReaderAsync(ct);while(await r.ReadAsync(ct))items.Add(new CartItem(r.IsDBNull(1)?string.Empty:r.GetString(1),r.IsDBNull(2)?0:r.GetInt32(2),r.IsDBNull(3)?1:Math.Max(1,(int)r.GetDecimal(3)),r.IsDBNull(4)||r.GetBoolean(4),Id:r.GetString(0)));return items;}
     private static string[] Strings(string? json){if(string.IsNullOrWhiteSpace(json))return[];try{return JsonSerializer.Deserialize<string[]>(json)??[];}catch(JsonException){return[];}}

@@ -238,7 +238,8 @@ public sealed partial class SalesOrderService(
         int delta = quantity - line.Quantity;
         ProductOrderSnapshot? product = await stock.GetProductAsync(line.ProductId, line.VariantIndex, cancellationToken);
         if (product is null) throw Error(404, "Không tìm thấy sản phẩm trong đơn hàng.");
-        IReadOnlyList<StockAdjustment> applied = delta == 0 ? [] : await stock.AdjustAsync([new StockAdjustment(line.ProductId, line.VariantIndex, -delta, 0, 0, product.VariantId)], cancellationToken);
+        if (delta > 0 && !product.IsAssignedToBranch) throw Error(403, "Sản phẩm đã bị thu hồi khỏi chi nhánh.");
+        IReadOnlyList<StockAdjustment> applied = delta == 0 ? [] : await stock.AdjustAsync([new StockAdjustment(line.ProductId, line.VariantIndex, -delta, 0, 0, product.VariantId, RequireActiveAssignment: delta > 0)], cancellationToken);
         try
         {
             List<SalesOrderItem> items = order.CartItems.ToList();
@@ -257,7 +258,7 @@ public sealed partial class SalesOrderService(
         SalesOrder order = await RequireEditableAsync(id, cancellationToken);
         SalesOrderItem line = RequireIndex(order, index);
         ProductOrderSnapshot? product = await stock.GetProductAsync(line.ProductId, line.VariantIndex, cancellationToken);
-        IReadOnlyList<StockAdjustment> applied = product is null ? [] : await stock.AdjustAsync([new StockAdjustment(line.ProductId, line.VariantIndex, line.Quantity, 0, 0, product.VariantId)], cancellationToken);
+        IReadOnlyList<StockAdjustment> applied = product is null ? [] : await stock.AdjustAsync([new StockAdjustment(line.ProductId, line.VariantIndex, line.Quantity, 0, 0, product.VariantId, RequireActiveAssignment: false)], cancellationToken);
         try
         {
             List<SalesOrderItem> items = order.CartItems.ToList();
@@ -305,7 +306,14 @@ public sealed partial class SalesOrderService(
         foreach (SalesOrderItem item in items.Take(500))
         {
             ProductOrderSnapshot? product = await stock.GetProductAsync(item.ProductId, item.VariantIndex, cancellationToken);
-            result.Add(new SalesOrderItemDetail(item.ProductId, item.VariantIndex, item.Quantity, product?.Name, product?.Code, product?.Brand, product?.ImageUrl, product?.Price, product?.Color, product?.Shape));
+            result.Add(new SalesOrderItemDetail(item.ProductId, item.VariantIndex, item.Quantity,
+                item.ProductNameSnapshot ?? product?.Name,
+                item.ProductCodeSnapshot ?? product?.Code,
+                product?.Brand,
+                product?.ImageUrl,
+                item.UnitPriceSnapshot ?? product?.Price,
+                product?.Color,
+                product?.Shape));
         }
         return result;
     }
@@ -326,6 +334,7 @@ public sealed partial class SalesOrderService(
             if (selectedStationProducts is not null && !selectedStationProducts.Contains(item.ProductId)) throw Error(403, "Sản phẩm không thuộc phạm vi trạm được chọn.");
             ProductOrderSnapshot product = await stock.GetProductAsync(item.ProductId, item.VariantIndex, ct)
                 ?? throw Error(404, $"Sản phẩm với ID {item.ProductId} không tồn tại.");
+            if (!product.IsAssignedToBranch) throw Error(403, "Sản phẩm chưa được phân phối cho chi nhánh hiện tại.");
             if (customer is not null && (!product.Display || product.Earn == 0 || ParsePrice(product.Price) <= 0 || product.QuantityForSale <= 0)) throw Error(409, $"Sản phẩm {product.Name} hiện chỉ nhận liên hệ.");
             (string, int) key = (item.ProductId, item.VariantIndex);
             int already = reserved.GetValueOrDefault(key);
@@ -359,7 +368,7 @@ public sealed partial class SalesOrderService(
                 if (skipMissing) continue;
                 throw Error(404, "Không tìm thấy sản phẩm trong đơn hàng.");
             }
-            result.Add(new StockAdjustment(item.ProductId, item.VariantIndex, saleSign * item.Quantity, storageSign * item.Quantity, purchaseSign * item.Quantity, product.VariantId));
+            result.Add(new StockAdjustment(item.ProductId, item.VariantIndex, saleSign * item.Quantity, storageSign * item.Quantity, purchaseSign * item.Quantity, product.VariantId, RequireActiveAssignment: !skipMissing));
         }
         return result;
     }
@@ -375,7 +384,8 @@ public sealed partial class SalesOrderService(
             ProductOrderSnapshot product = await stock.GetProductAsync(item.ProductId, item.VariantIndex, cancellationToken)
                 ?? throw Error(404, "Không tìm thấy sản phẩm trong đơn hàng.");
             adjustments.Add(new StockAdjustment(item.ProductId, item.VariantIndex,
-                saleSign * item.Quantity, storageSign * item.Quantity, purchaseSign * item.Quantity, product.VariantId));
+                saleSign * item.Quantity, storageSign * item.Quantity, purchaseSign * item.Quantity, product.VariantId,
+                RequireActiveAssignment: false));
             entries.Add(new StorageHistoryWriteEntry(
                 item.ProductId,
                 product.Name ?? string.Empty,

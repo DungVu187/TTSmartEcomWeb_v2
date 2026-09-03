@@ -7,7 +7,9 @@ using TTSmartEcom.Domain.Audit;
 
 namespace TTSmartEcom.Infrastructure.SqlServer.Audit;
 
-public sealed class SqlAuditRepository(ISqlConnectionFactory factory) : IAuditRepository, IActivityLogWriter
+public sealed class SqlAuditRepository(
+    IOperationalDbConnectionFactory factory,
+    ICompanyDbConnectionFactory companyFactory) : IAuditRepository, IActivityLogWriter
 {
     private static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -61,10 +63,11 @@ public sealed class SqlAuditRepository(ISqlConnectionFactory factory) : IAuditRe
         JsonObject details=Parse(reader.IsDBNull(3)?"{}":reader.GetString(3)); JsonArray lines=details["details"] as JsonArray??[];
         return new ActivityLog(reader.GetString(0),reader.IsDBNull(1)?null:reader.GetString(1),reader.IsDBNull(2)?null:reader.GetString(2),String(details,"productId"),String(details,"productName"),lines.OfType<JsonObject>().Select(x=>new ActivityLogDetail(String(x,"field"),String(x,"oldValue")??string.Empty,String(x,"newValue")??string.Empty)).ToArray(),reader.IsDBNull(4)?null:new DateTimeOffset(reader.GetDateTime(4),TimeSpan.Zero),reader.IsDBNull(4)?null:new DateTimeOffset(reader.GetDateTime(4),TimeSpan.Zero));
     }
-    private static async Task<ActivityLogReferences> ReferencesAsync(SqlConnection c,IReadOnlyList<ActivityLog> logs,CancellationToken ct)
+    private async Task<ActivityLogReferences> ReferencesAsync(SqlConnection c,IReadOnlyList<ActivityLog> logs,CancellationToken ct)
     {
         HashSet<string> products=[];HashSet<string> stations=[];foreach(ActivityLog log in logs)foreach(ActivityLogDetail detail in log.Details){string field=detail.Field??string.Empty;HashSet<string> target=field.Equals("station",StringComparison.OrdinalIgnoreCase)?stations:field.Equals("productId",StringComparison.OrdinalIgnoreCase)?products:null!;if(target is not null)foreach(Match match in Regex.Matches((detail.OldValue??string.Empty)+" "+(detail.NewValue??string.Empty),@"\b[0-9a-fA-F]{24}\b"))target.Add(match.Value.ToLowerInvariant());}
-        return new ActivityLogReferences(await LabelsAsync(c,"dbo.Products","PublicId","Code","Name",products,ct),await LabelsAsync(c,"dbo.Stations","PublicId","Code","Name",stations,ct));
+        await using SqlConnection company=companyFactory.Create();await company.OpenAsync(ct);
+        return new ActivityLogReferences(await LabelsAsync(company,"dbo.Products","PublicId","Code","Name",products,ct),await LabelsAsync(c,"dbo.Stations","PublicId","Code","Name",stations,ct));
     }
     private static async Task<Dictionary<string,string>> LabelsAsync(SqlConnection c,string table,string idColumn,string primary,string secondary,IEnumerable<string> ids,CancellationToken ct){string[] values=ids.Take(200).ToArray();Dictionary<string,string> result=new(StringComparer.OrdinalIgnoreCase);if(values.Length==0)return result;await using SqlCommand q=new($"SELECT {idColumn},{primary},{secondary} FROM {table} WHERE {idColumn} IN ({string.Join(',',values.Select((_,i)=>"@p"+i))});",c);for(int i=0;i<values.Length;i++)q.Parameters.AddWithValue("@p"+i,values[i]);await using SqlDataReader r=await q.ExecuteReaderAsync(ct);while(await r.ReadAsync(ct)){string id=r.GetString(0),a=r.IsDBNull(1)?string.Empty:r.GetString(1),b=r.IsDBNull(2)?string.Empty:r.GetString(2);result[id]=string.IsNullOrWhiteSpace(a)?b:string.IsNullOrWhiteSpace(b)?a:$"{a} - {b}";}return result;}
     private static JsonObject Parse(string value)=>JsonNode.Parse(value) as JsonObject??new JsonObject();

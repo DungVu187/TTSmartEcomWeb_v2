@@ -47,6 +47,6 @@ public interface IOrderStockPort
     Task<ProductOrderSnapshot?> GetProductAsync(string productId, int variantIndex, CancellationToken cancellationToken);
 }
 
-public sealed record StockAdjustment(string ProductId, int VariantIndex, double QuantityForSaleDelta, double QuantityInStorageDelta, double PurchaseCountDelta = 0, string? ExpectedVariantId = null);
-public sealed record ProductOrderSnapshot(string ProductId, int VariantIndex, string? VariantId, string? Name, string? Brand, string? Code, string? Price, string? ImageUrl, string? Color, string? Shape, double QuantityForSale, double QuantityInStorage, double Earn, bool Display, string? ImportPrice = null);
+public sealed record StockAdjustment(string ProductId, int VariantIndex, double QuantityForSaleDelta, double QuantityInStorageDelta, double PurchaseCountDelta = 0, string? ExpectedVariantId = null, bool RequireActiveAssignment = true);
+public sealed record ProductOrderSnapshot(string ProductId, int VariantIndex, string? VariantId, string? Name, string? Brand, string? Code, string? Price, string? ImageUrl, string? Color, string? Shape, double QuantityForSale, double QuantityInStorage, double Earn, bool Display, string? ImportPrice = null, bool IsAssignedToBranch = true, Guid? InternalProductId = null, Guid? InternalVariantId = null, string? VariantName = null);
 public sealed record SalesOrderItemDetail(string ProductId, int VariantIndex, int Quantity, string? Name, string? Code, string? Brand, string? ImgUrl, string? Price, string? Color, string? Shape);

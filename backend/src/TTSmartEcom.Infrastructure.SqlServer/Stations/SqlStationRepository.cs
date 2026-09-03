@@ -3,10 +3,13 @@ using System.Text.Json.Nodes;
 using Microsoft.Data.SqlClient;
 using TTSmartEcom.Application.Stations;
 using TTSmartEcom.Domain.Stations;
+using TTSmartEcom.Infrastructure.SqlServer.Products;
 
 namespace TTSmartEcom.Infrastructure.SqlServer.Stations;
 
-public sealed class SqlStationRepository(ISqlConnectionFactory factory) : IStationRepository
+public sealed class SqlStationRepository(
+    IOperationalDbConnectionFactory factory,
+    SqlBranchProductReader branchProducts) : IStationRepository
 {
     public async Task<StationPage> ListAsync(int page, int limit, string? search, CancellationToken cancellationToken)
     {
@@ -69,14 +72,23 @@ public sealed class SqlStationRepository(ISqlConnectionFactory factory) : IStati
     public async Task<Station?> UpdateProductsAsync(string id, IReadOnlyList<string> productIds, CancellationToken cancellationToken)
     {
         StationRow? current = await FindRowAsync(id, cancellationToken); if (current is null) return null;
+        IReadOnlyList<SqlBranchProductSnapshot> assignedProducts = await branchProducts.FindVariantsAsync(
+            productIds.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            requireActiveAssignment: true,
+            cancellationToken);
+        Dictionary<string,Guid> internalIds = assignedProducts
+            .GroupBy(product => product.ProductPublicId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().ProductId, StringComparer.OrdinalIgnoreCase);
+        if (internalIds.Count != productIds.Distinct(StringComparer.OrdinalIgnoreCase).Count())
+            throw new UnauthorizedAccessException("Product is not actively assigned to the current Branch.");
         await using SqlConnection connection = factory.Create(); await connection.OpenAsync(cancellationToken); await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         try
         {
             await using (SqlCommand clear = new("DELETE FROM dbo.StationProducts WHERE StationId=@station;", connection, transaction)) { clear.Parameters.AddWithValue("@station", current.Id); await clear.ExecuteNonQueryAsync(cancellationToken); }
             for (int index = 0; index < productIds.Count; index++)
             {
-                await using SqlCommand insert = new("INSERT dbo.StationProducts(StationProductId,PublicId,StationId,ProductId,SourceProductId,SortOrder,DetailsJson,Version) VALUES(NEWID(),@id,@station,(SELECT ProductId FROM dbo.Products WHERE PublicId=@product),@product,@sort,N'{}',0);", connection, transaction);
-                insert.Parameters.AddWithValue("@id", SqlPublicIds.New()); insert.Parameters.AddWithValue("@station", current.Id); insert.Parameters.AddWithValue("@product", productIds[index]); insert.Parameters.AddWithValue("@sort", index); await insert.ExecuteNonQueryAsync(cancellationToken);
+                await using SqlCommand insert = new("INSERT dbo.StationProducts(StationProductId,PublicId,StationId,ProductId,SourceProductId,SortOrder,DetailsJson,Version) VALUES(NEWID(),@id,@station,@productId,@product,@sort,N'{}',0);", connection, transaction);
+                insert.Parameters.AddWithValue("@id", SqlPublicIds.New()); insert.Parameters.AddWithValue("@station", current.Id); insert.Parameters.AddWithValue("@productId", internalIds[productIds[index]]); insert.Parameters.AddWithValue("@product", productIds[index]); insert.Parameters.AddWithValue("@sort", index); await insert.ExecuteNonQueryAsync(cancellationToken);
             }
             JsonObject details = Parse(current.DetailsJson);
             JsonArray productArray = new();

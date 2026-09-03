@@ -87,7 +87,11 @@ public sealed partial class CurrentUserContextMiddleware(
                         }
 
                         activeCompanyId = reqCompanyId;
-                        if (activeBranchId.HasValue && !resolvedContext.BranchMemberships.Any(branch =>
+                        if (!context.Request.Headers.ContainsKey("X-Branch-Id"))
+                        {
+                            activeBranchId = null;
+                        }
+                        else if (activeBranchId.HasValue && !resolvedContext.BranchMemberships.Any(branch =>
                                 branch.BranchId == activeBranchId.Value && branch.CompanyId == reqCompanyId))
                         {
                             // A default primary branch can belong to another company. A
@@ -159,7 +163,9 @@ public sealed partial class CurrentUserContextMiddleware(
                             activeBranchId,
                             resolvedContext.Roles,
                             resolvedContext.Permissions,
-                            resolvedContext.IsControlPlaneIdentity);
+                            resolvedContext.IsControlPlaneIdentity,
+                            inferActiveBranch: !context.Request.Headers.ContainsKey("X-Company-Id")
+                                || context.Request.Headers.ContainsKey("X-Branch-Id"));
                     }
 
                     if (resolvedContext.IsControlPlaneIdentity)

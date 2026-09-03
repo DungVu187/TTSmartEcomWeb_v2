@@ -3,17 +3,22 @@ using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using TTSmartEcom.Application.Audit;
 using TTSmartEcom.Domain.Audit;
+using TTSmartEcom.Infrastructure.SqlServer.Products;
 
 namespace TTSmartEcom.Infrastructure.SqlServer.Audit;
 
 #pragma warning disable CA1725
 
-public sealed class SqlStorageHistoryRepository(ISqlConnectionFactory factory) : IStorageHistoryRepository, IStorageHistoryWriter
+public sealed class SqlStorageHistoryRepository(
+    IOperationalDbConnectionFactory factory,
+    SqlBranchProductReader branchProducts) : IStorageHistoryRepository, IStorageHistoryWriter
 {
     private const int MaximumExportRows = 10_000;
 
     public async Task AppendAsync(StorageHistoryWriteEntry entry, CancellationToken ct)
     {
+        SqlBranchProductSnapshot? product = await branchProducts.FindVariantAsync(
+            entry.ProductId, 0, requireActiveAssignment: false, ct);
         await using SqlConnection connection = factory.Create();
         await connection.OpenAsync(ct);
         await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(ct);
@@ -43,10 +48,11 @@ public sealed class SqlStorageHistoryRepository(ISqlConnectionFactory factory) :
                 command.Parameters.AddWithValue("@details", details);
                 await command.ExecuteNonQueryAsync(ct);
             }
-            await using (SqlCommand command = new("INSERT dbo.StockMovementLines(StockMovementLineId,PublicId,StockOperationId,ProductId,SourceProductId,Quantity,DetailsJson,SortOrder,Version) VALUES(NEWID(),@public,@operation,(SELECT ProductId FROM dbo.Products WHERE PublicId=@product),@product,@quantity,@details,0,0);", connection, transaction))
+            await using (SqlCommand command = new("INSERT dbo.StockMovementLines(StockMovementLineId,PublicId,StockOperationId,ProductId,SourceProductId,Quantity,DetailsJson,SortOrder,Version) VALUES(NEWID(),@public,@operation,@productId,@product,@quantity,@details,0,0);", connection, transaction))
             {
                 command.Parameters.AddWithValue("@public", SqlPublicIds.New());
                 command.Parameters.AddWithValue("@operation", operationId);
+                command.Parameters.AddWithValue("@productId", (object?)product?.ProductId ?? DBNull.Value);
                 command.Parameters.AddWithValue("@product", entry.ProductId);
                 command.Parameters.AddWithValue("@quantity", entry.Quantity);
                 command.Parameters.AddWithValue("@details", details);

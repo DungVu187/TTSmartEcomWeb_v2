@@ -3,6 +3,7 @@ using TTSmartEcom.Application.Orders;
 using TTSmartEcom.Domain.Orders;
 using TTSmartEcom.Infrastructure.SqlServer;
 using TTSmartEcom.Infrastructure.SqlServer.Orders;
+using TTSmartEcom.Infrastructure.SqlServer.Products;
 using Xunit.Sdk;
 
 namespace TTSmartEcom.IntegrationTests;
@@ -33,11 +34,18 @@ public sealed class SqlOrderStockIntegrationTests
                 VALUES(NEWID(),N'{ProductId}',N'Sản phẩm test',N'Brand',N'SP-TEST',1,0);
                 INSERT dbo.ProductVariants(ProductVariantId,PublicId,ProductId,SortOrder,PriceRaw,ImportPriceRaw,QuantityForSale,QuantityInStorage,DetailsJson)
                 SELECT NEWID(),N'{VariantId}',ProductId,0,N'10000',N'5000',10,20,NULL FROM dbo.Products WHERE PublicId=N'{ProductId}';
+                INSERT dbo.ProductBranchAssignments(ProductBranchAssignmentId,ProductId,BranchId,IsActive,AssignedAtUtc)
+                SELECT NEWID(),ProductId,'22222222-2222-2222-2222-222222222222',1,SYSUTCDATETIME() FROM dbo.Products;
+                INSERT dbo.BranchStockBalances(ProductVariantId,ProductId,ProductPublicId,ProductVariantPublicId,VariantPosition,QuantityForSale,QuantityInStorage,SourceVersion)
+                SELECT v.ProductVariantId,v.ProductId,p.PublicId,v.PublicId,v.SortOrder,10,20,0 FROM dbo.ProductVariants v JOIN dbo.Products p ON p.ProductId=v.ProductId;
+                INSERT dbo.BranchProductVariants(BranchProductVariantId,ProductId,ProductVariantId,PriceRaw,ImportPriceRaw,IsActive)
+                SELECT NEWID(),ProductId,ProductVariantId,PriceRaw,ImportPriceRaw,1 FROM dbo.ProductVariants;
                 """);
 
             var factory = new TestConnectionFactory(test.ConnectionString);
-            var orders = new SqlOrderRepository(factory);
-            var stock = new SqlOrderStockPort(factory);
+            var reader = new SqlBranchProductReader(factory, factory);
+            var orders = new SqlOrderRepository(factory, reader);
+            var stock = new SqlOrderStockPort(factory, reader);
             SalesOrder draft = new(string.Empty, "TTS-01", string.Empty, string.Empty, [], 0, "Processing", false, "Processing", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 0);
 
             SalesOrder created = await orders.InsertAsync(draft, CancellationToken.None);
@@ -87,10 +95,18 @@ public sealed class SqlOrderStockIntegrationTests
         );
         CREATE TABLE dbo.ProductVariants (
             ProductVariantId uniqueidentifier NOT NULL PRIMARY KEY, PublicId char(24) NOT NULL UNIQUE,
-            ProductId uniqueidentifier NOT NULL, SortOrder int NOT NULL, PriceRaw nvarchar(200) NULL,
+            ProductId uniqueidentifier NOT NULL, SortOrder int NOT NULL, Name nvarchar(500) NULL, PriceRaw nvarchar(200) NULL,
             ImportPriceRaw nvarchar(200) NULL, QuantityForSale decimal(19,6) NULL,
             QuantityInStorage decimal(19,6) NULL, DetailsJson nvarchar(max) NULL
         );
+        CREATE TABLE dbo.CompanyDatabaseInfo(CompanyDatabaseInfoId uniqueidentifier NOT NULL PRIMARY KEY,SingletonKey tinyint NOT NULL,CompanyId uniqueidentifier NOT NULL,DatabaseKind nvarchar(40) NOT NULL);
+        INSERT dbo.CompanyDatabaseInfo VALUES(NEWID(),1,'11111111-1111-1111-1111-111111111111',N'CompanyShared');
+        CREATE TABLE dbo.BranchDatabaseInfo(BranchDatabaseInfoId uniqueidentifier NOT NULL PRIMARY KEY,SingletonKey tinyint NOT NULL,CompanyId uniqueidentifier NOT NULL,BranchId uniqueidentifier NOT NULL,DatabaseKind nvarchar(40) NOT NULL);
+        INSERT dbo.BranchDatabaseInfo VALUES(NEWID(),1,'11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222',N'BranchOperational');
+        CREATE TABLE dbo.ProductBranchAssignments(ProductBranchAssignmentId uniqueidentifier NOT NULL PRIMARY KEY,ProductId uniqueidentifier NOT NULL,BranchId uniqueidentifier NOT NULL,IsActive bit NOT NULL,AssignedAtUtc datetime2(7) NOT NULL);
+        CREATE TABLE dbo.BranchStockBalances(ProductVariantId uniqueidentifier NOT NULL PRIMARY KEY,ProductId uniqueidentifier NOT NULL,ProductPublicId char(24) NOT NULL,ProductVariantPublicId char(24) NOT NULL,VariantPosition int NOT NULL,QuantityForSale decimal(19,6) NULL,QuantityInStorage decimal(19,6) NULL,ProductCodeSnapshot nvarchar(200) NULL,ProductNameSnapshot nvarchar(1000) NULL,VariantNameSnapshot nvarchar(1000) NULL,SourceVersion bigint NOT NULL,CreatedAtUtc datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME(),UpdatedAtUtc datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME());
+        CREATE TABLE dbo.BranchProductVariants(BranchProductVariantId uniqueidentifier NOT NULL PRIMARY KEY,ProductId uniqueidentifier NOT NULL,ProductVariantId uniqueidentifier NOT NULL UNIQUE,PriceRaw nvarchar(100) NULL,ImportPriceRaw nvarchar(100) NULL,IsActive bit NOT NULL);
+        CREATE TABLE dbo.BranchProductStatistics(ProductId uniqueidentifier NOT NULL PRIMARY KEY,PurchaseCount bigint NOT NULL,UpdatedAtUtc datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME());
         CREATE TABLE dbo.SalesOrders (
             SalesOrderId uniqueidentifier NOT NULL PRIMARY KEY, PublicId char(24) NOT NULL UNIQUE,
             OrderCode nvarchar(100) NULL, CustomerPhoneSnapshot nvarchar(50) NULL,
@@ -123,14 +139,14 @@ public sealed class SqlOrderStockIntegrationTests
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();
-        await using var command = new SqlCommand("SELECT v.QuantityForSale,v.QuantityInStorage,CONVERT(decimal(19,6),p.PurchaseCount) FROM dbo.ProductVariants v JOIN dbo.Products p ON p.ProductId=v.ProductId WHERE v.PublicId=@id;", connection);
+        await using var command = new SqlCommand("SELECT b.QuantityForSale,b.QuantityInStorage,CONVERT(decimal(19,6),COALESCE(s.PurchaseCount,0)) FROM dbo.BranchStockBalances b LEFT JOIN dbo.BranchProductStatistics s ON s.ProductId=b.ProductId WHERE b.ProductVariantPublicId=@id;", connection);
         command.Parameters.AddWithValue("@id", VariantId);
         await using SqlDataReader reader = await command.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
         return (reader.GetDecimal(0), reader.GetDecimal(1), reader.GetDecimal(2));
     }
 
-    private sealed class TestConnectionFactory(string connectionString) : ISqlConnectionFactory
+    private sealed class TestConnectionFactory(string connectionString) : ISqlConnectionFactory, IOperationalDbConnectionFactory, ICompanyDbConnectionFactory
     {
         public SqlConnection Create() => new(new SqlConnectionStringBuilder(connectionString)
         {

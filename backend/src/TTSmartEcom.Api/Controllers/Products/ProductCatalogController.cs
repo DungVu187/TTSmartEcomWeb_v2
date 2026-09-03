@@ -5,6 +5,7 @@ using TTSmartEcom.Api.Middleware;
 using TTSmartEcom.Application.Abstractions.Authentication;
 using TTSmartEcom.Application.Products;
 using TTSmartEcom.Api.Security;
+using TTSmartEcom.Domain.Security;
 
 namespace TTSmartEcom.Api.Controllers.Products;
 
@@ -73,13 +74,24 @@ public sealed class ProductCatalogController(ProductCatalogReadService products)
     [PermissionAuthorize("product.edit")]
     public async Task<IActionResult> AdminDetail(string id, CancellationToken cancellationToken)
     {
+        ProductViewer viewer = Viewer() is { } current
+            ? current with { Role = "admin" }
+            : new ProductViewer("admin");
         var value = await products.GetByIdAsync(
-            id, new ProductViewer("admin"), cancellationToken, includePrivate: true);
+            id, viewer, cancellationToken, includePrivate: true);
         return value is null ? NotFound(new { message = "Product not found" }) : Ok(ProductResponse.From(value));
     }
 
-    private ProductViewer? Viewer() =>
-        HttpContext.Items[LegacyPrincipalMiddleware.IdentityItemKey] is UserIdentitySnapshot identity
-            ? new ProductViewer(identity.Role, identity.StationIds)
-            : null;
+    private ProductViewer? Viewer()
+    {
+        UserIdentitySnapshot? identity = HttpContext.Items[LegacyPrincipalMiddleware.IdentityItemKey] as UserIdentitySnapshot;
+        ICurrentUserContext? scope = HttpContext.Items[CurrentUserContextMiddleware.ContextItemKey] as ICurrentUserContext;
+        return identity is null && scope is null
+            ? null
+            : new ProductViewer(
+                identity?.Role,
+                identity?.StationIds,
+                scope?.ActiveCompanyId,
+                scope?.ActiveBranchId);
+    }
 }

@@ -21,7 +21,8 @@ public sealed class ProductCatalogReadService(
             1, 10, null, null, null, null, null, null, "purchaseCount", "desc",
             viewer?.IsPrivileged == true ? null : true,
             IncludePrivate: false,
-            AllowedProductIds: allowed), cancellationToken);
+            AllowedProductIds: allowed,
+            BranchId: viewer?.BranchId), cancellationToken);
         return page.Products;
     }
 
@@ -44,6 +45,7 @@ public sealed class ProductCatalogReadService(
         return await repository.FindByIdAsync(
             normalizedId,
             includePrivate && viewer?.IsPrivileged == true,
+            viewer?.BranchId,
             cancellationToken);
     }
 
@@ -81,7 +83,7 @@ public sealed class ProductCatalogReadService(
             stationId);
         return await repository.ListAsync(
             new ProductListQuery(page, limit, search, code, type, brand, section, value,
-                sortBy, sortOrder, display, viewer?.IsPrivileged == true, allowed, adjusted), cancellationToken);
+                sortBy, sortOrder, display, viewer?.IsPrivileged == true, allowed, adjusted, viewer?.BranchId), cancellationToken);
     }
 
     public async Task<(bool Valid, IReadOnlyList<ProductRecord> Products)> FetchByIdsAsync(
@@ -117,6 +119,7 @@ public sealed class ProductCatalogReadService(
             : await repository.FindByIdsAsync(
                 safeIds,
                 includePrivate && viewer?.IsPrivileged == true,
+                viewer?.BranchId,
                 cancellationToken);
         return (true, products);
     }

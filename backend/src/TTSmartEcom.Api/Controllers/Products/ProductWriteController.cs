@@ -7,6 +7,7 @@ using TTSmartEcom.Api.Security;
 using TTSmartEcom.Application.Abstractions.Authentication;
 using TTSmartEcom.Application.Abstractions.Products;
 using TTSmartEcom.Application.Products;
+using TTSmartEcom.Domain.Security;
 
 namespace TTSmartEcom.Api.Controllers.Products;
 
@@ -147,10 +148,14 @@ public sealed class ProductWriteController(ProductCatalogWriteService products) 
         });
     }
 
-    private ProductViewer? Viewer() =>
-        HttpContext.Items[LegacyPrincipalMiddleware.IdentityItemKey] is UserIdentitySnapshot identity
-            ? new ProductViewer(identity.Role, identity.StationIds)
-            : null;
+    private ProductViewer? Viewer()
+    {
+        UserIdentitySnapshot? identity = HttpContext.Items[LegacyPrincipalMiddleware.IdentityItemKey] as UserIdentitySnapshot;
+        ICurrentUserContext? scope = HttpContext.Items[CurrentUserContextMiddleware.ContextItemKey] as ICurrentUserContext;
+        return identity is null && scope is null
+            ? null
+            : new ProductViewer(identity?.Role, identity?.StationIds, scope?.ActiveCompanyId, scope?.ActiveBranchId);
+    }
 
     private string? ActorName() =>
         (HttpContext.Items[LegacyPrincipalMiddleware.IdentityItemKey] as UserIdentitySnapshot)?.Name;
@@ -162,6 +167,7 @@ public sealed class ProductWriteController(ProductCatalogWriteService products) 
             ProductMutationStatus.NotFound => 404,
             ProductMutationStatus.Conflict => 409,
             ProductMutationStatus.Invalid => 400,
+            ProductMutationStatus.Forbidden => 403,
             _ => 500,
         };
         return StatusCode(status, new { message = result.Message ?? "Invalid request" });

@@ -85,7 +85,8 @@ public sealed class CurrentUserContext : ICurrentUserContext
         Guid? activeBranchId,
         IReadOnlyList<string>? roles,
         IReadOnlySet<string>? permissions,
-        bool isControlPlaneIdentity = false)
+        bool isControlPlaneIdentity = false,
+        bool inferActiveBranch = true)
     {
         UserId = userId;
         IsAuthenticated = isAuthenticated;
@@ -100,6 +101,10 @@ public sealed class CurrentUserContext : ICurrentUserContext
         if (activeBranchId.HasValue)
         {
             ActiveBranchId = activeBranchId;
+        }
+        else if (!inferActiveBranch)
+        {
+            ActiveBranchId = null;
         }
         else if (ActiveCompanyId.HasValue)
         {

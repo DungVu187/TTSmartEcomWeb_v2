@@ -6,7 +6,9 @@ namespace TTSmartEcom.Application.Products;
 
 public sealed record ProductViewer(
     string? Role,
-    IReadOnlyCollection<string>? StationIds = null)
+    IReadOnlyCollection<string>? StationIds = null,
+    Guid? CompanyId = null,
+    Guid? BranchId = null)
 {
     public bool IsPrivileged => Role is "superadmin" or "admin" or "staff";
 }

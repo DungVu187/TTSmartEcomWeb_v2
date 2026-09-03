@@ -79,6 +79,35 @@ public sealed class CurrentUserContextMiddlewareTests
         Assert.Null(resolved.ActiveBranchId);
     }
 
+    [Fact]
+    public async Task CompanyOnlySelection_ClearsPrimaryBranchFromSameCompany()
+    {
+        Guid userId = Guid.NewGuid();
+        Guid companyId = Guid.NewGuid();
+        Guid branchId = Guid.NewGuid();
+        CurrentUserContext identity = new(
+            userId, true, false, "User", null, null,
+            [new CompanyMembershipContext(companyId, "ABC", "ABC", Guid.NewGuid(), 2, [], new HashSet<string>())],
+            companyId,
+            [new BranchMembershipContext(companyId, branchId, "MAIN", "Main", Guid.NewGuid(), true, [], new HashSet<string>())],
+            branchId, [], new HashSet<string>(), isControlPlaneIdentity: true);
+
+        DefaultHttpContext http = new();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("userId", userId.ToString())], "test"));
+        http.Request.Headers["X-Company-Id"] = companyId.ToString();
+        CurrentUserContextMiddleware middleware = new(
+            _ => Task.CompletedTask,
+            new FixedControlPlaneIdentityReader(identity),
+            new NullLegacyIdentityReader(),
+            NullLogger<CurrentUserContextMiddleware>.Instance);
+
+        await middleware.InvokeAsync(http);
+
+        ICurrentUserContext resolved = Assert.IsAssignableFrom<ICurrentUserContext>(http.Items[CurrentUserContextMiddleware.ContextItemKey]);
+        Assert.Equal(companyId, resolved.ActiveCompanyId);
+        Assert.Null(resolved.ActiveBranchId);
+    }
+
     private sealed class FixedControlPlaneIdentityReader(ICurrentUserContext context) : IControlPlaneIdentityReader
     {
         public Task<ICurrentUserContext?> FindContextByIdAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<ICurrentUserContext?>(context);

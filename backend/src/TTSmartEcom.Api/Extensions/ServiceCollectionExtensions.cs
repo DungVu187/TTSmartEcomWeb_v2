@@ -80,6 +80,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPasswordResetEmailSender, SmtpPasswordResetEmailSender>();
         services.AddScoped<ProductCatalogReadService>();
         services.AddScoped<ProductAccessScopeService>();
+        services.AddScoped<ProductBranchDistributionService>();
         services.AddScoped<CatalogReadService>();
         services.AddScoped<ProductCatalogWriteService>();
         services.AddScoped<CatalogWriteService>();
@@ -108,7 +109,10 @@ public static class ServiceCollectionExtensions
         // SQL registrations come last while Mongo implementations remain available solely
         // for rollback/migration code; default runtime must not resolve Mongo here.
         services.AddScoped<SqlProductCatalogRepository>();
+        services.AddScoped<SqlBranchProductReader>();
         services.AddScoped<IProductCatalogRepository>(serviceProvider => serviceProvider.GetRequiredService<SqlProductCatalogRepository>());
+        services.AddScoped<IProductBranchAssignmentRepository, SqlProductBranchAssignmentRepository>();
+        services.AddScoped<ICompanyBranchDirectory, SqlCompanyBranchDirectory>();
         services.AddScoped<SqlProductMutationRepository>();
         services.AddScoped<IProductCatalogWriteRepository>(serviceProvider => serviceProvider.GetRequiredService<SqlProductMutationRepository>());
         services.AddScoped<IProductMediaRepository>(serviceProvider => serviceProvider.GetRequiredService<SqlProductMutationRepository>());

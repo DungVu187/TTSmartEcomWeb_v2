@@ -399,7 +399,7 @@ public sealed partial class InventoryOrderService(
         };
         if (required == 0) return (completed, null, product.Name);
         double delta = kind == InventoryOrderKind.Import ? required : -required;
-        return (completed, new StockAdjustment(line.ProductId!, 0, delta, delta, ExpectedVariantId: product.VariantId), product.Name);
+        return (completed, new StockAdjustment(line.ProductId!, 0, delta, delta, ExpectedVariantId: product.VariantId, RequireActiveAssignment: false), product.Name);
     }
 
     private async Task<InventoryOrder> AdjustAndSaveAsync(
@@ -471,6 +471,7 @@ public sealed partial class InventoryOrderService(
     {
         ProductOrderSnapshot product = await products.GetProductAsync(productId, 0, cancellationToken)
             ?? throw Error(404, $"Product {productId} not found");
+        if (!product.IsAssignedToBranch) throw Error(403, "Sản phẩm chưa được phân phối cho chi nhánh hiện tại.");
         if (string.IsNullOrWhiteSpace(product.VariantId)) throw Error(400, "Sản phẩm không có biến thể");
         return product;
     }

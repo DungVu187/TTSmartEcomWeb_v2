@@ -16,7 +16,8 @@ public sealed record ProductListQuery(
     bool? Display,
     bool IncludePrivate,
     IReadOnlyCollection<string>? AllowedProductIds = null,
-    bool? Adjusted = null);
+    bool? Adjusted = null,
+    Guid? BranchId = null);
 
 public sealed record ProductPage(
     long Total,
@@ -119,10 +120,24 @@ public interface IProductCatalogRepository
 
     Task<ProductRecord?> FindByIdAsync(string id, bool includePrivate, CancellationToken cancellationToken);
 
+    Task<ProductRecord?> FindByIdAsync(
+        string id,
+        bool includePrivate,
+        Guid? branchId,
+        CancellationToken cancellationToken) =>
+        FindByIdAsync(id, includePrivate, cancellationToken);
+
     Task<IReadOnlyList<ProductRecord>> FindByIdsAsync(
         IReadOnlyCollection<string> ids,
         bool includePrivate,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ProductRecord>> FindByIdsAsync(
+        IReadOnlyCollection<string> ids,
+        bool includePrivate,
+        Guid? branchId,
+        CancellationToken cancellationToken) =>
+        FindByIdsAsync(ids, includePrivate, cancellationToken);
 
     Task<IReadOnlyList<ProductTypeRecord>> ListTypesAsync(CancellationToken cancellationToken);
 }

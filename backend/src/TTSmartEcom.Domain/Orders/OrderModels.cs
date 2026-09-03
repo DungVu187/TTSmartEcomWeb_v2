@@ -6,7 +6,12 @@ public sealed record SalesOrderItem(
     string ProductId,
     int VariantIndex,
     int Quantity,
-    [property: JsonPropertyName("_id")] string? SubdocumentId = null);
+    [property: JsonPropertyName("_id")] string? SubdocumentId = null,
+    string? ProductCodeSnapshot = null,
+    string? ProductNameSnapshot = null,
+    string? VariantNameSnapshot = null,
+    string? VariantPublicIdSnapshot = null,
+    string? UnitPriceSnapshot = null);
 
 public sealed record SalesOrder(
     [property: JsonPropertyName("_id")] string Id,
