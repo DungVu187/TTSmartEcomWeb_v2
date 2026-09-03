@@ -70,6 +70,7 @@ public sealed class ApiPipelineIntegrationTests : IClassFixture<WebApplicationFa
             using HttpResponseMessage customerAsset = await configuredClient.GetAsync("/assets/customer.js");
             using HttpResponseMessage adminAsset = await configuredClient.GetAsync("/admin/assets/admin.js");
             using HttpResponseMessage apiMiss = await configuredClient.GetAsync("/api/not-a-route");
+            using HttpResponseMessage controlPlaneMiss = await configuredClient.GetAsync("/control-plane/not-a-route");
             using HttpResponseMessage prefixedAssetMiss = await configuredClient.GetAsync("/api/assets/customer.js");
             using HttpResponseMessage staticMiss = await configuredClient.GetAsync("/assets/missing.js");
 
@@ -80,6 +81,8 @@ public sealed class ApiPipelineIntegrationTests : IClassFixture<WebApplicationFa
             Assert.Equal("admin-asset", await adminAsset.Content.ReadAsStringAsync());
             Assert.Equal(HttpStatusCode.NotFound, apiMiss.StatusCode);
             Assert.Equal("{\"message\":\"Route not found\"}", await apiMiss.Content.ReadAsStringAsync());
+            Assert.Equal(HttpStatusCode.NotFound, controlPlaneMiss.StatusCode);
+            Assert.Equal("{\"message\":\"Route not found\"}", await controlPlaneMiss.Content.ReadAsStringAsync());
             Assert.Equal(HttpStatusCode.NotFound, prefixedAssetMiss.StatusCode);
             Assert.NotEqual("customer-asset", await prefixedAssetMiss.Content.ReadAsStringAsync());
             Assert.Equal(HttpStatusCode.NotFound, staticMiss.StatusCode);

@@ -10,6 +10,7 @@ import {
   deleteAccountUser,
   getCompanyAccounts,
   getCompanyRoles,
+  getPlatformCompanies,
   getAccountPermissionCatalog,
   getAccountUsers,
   saveAccountUser,
@@ -149,6 +150,18 @@ describe("accountApi", () => {
 
     await expect(getCompanyAccounts(companyId)).rejects.toThrow(
       "Lỗi 404: Không thể tải tài khoản Company",
+    );
+  });
+
+  it("does not expose a JSON parser error when a successful response is HTML", async () => {
+    apiFetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token '<'")),
+    });
+
+    await expect(getPlatformCompanies()).rejects.toThrow(
+      "Không thể tải danh sách công ty",
     );
   });
 });

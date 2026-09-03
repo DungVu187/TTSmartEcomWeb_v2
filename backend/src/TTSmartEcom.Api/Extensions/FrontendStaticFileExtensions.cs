@@ -9,6 +9,7 @@ public static class FrontendStaticFileExtensions
 {
     private static readonly PathString[] ApiRoots =
     [
+        "/control-plane",
         "/users",
         "/products",
         "/orders",

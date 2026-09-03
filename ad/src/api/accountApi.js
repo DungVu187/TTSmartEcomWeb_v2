@@ -139,7 +139,11 @@ export const setCompanyMembershipStatus = async ({ companyId, userId, isActive }
 const requestJson = async (path, options, fallback) => {
   const response = await apiFetch(path, options);
   if (!response.ok) throw new Error(await getErrorMessage(response, fallback));
-  return response.json();
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(fallback);
+  }
 };
 
 export const getPlatformCompanies = () => requestJson(
