@@ -22,10 +22,39 @@ public sealed class ProductBranchDistributionService(
     {
         Guid companyId = RequireCompanyScope(context);
         string normalizedProductId = RequireProductId(productId);
-        ProductBranchAssignmentQueryResult result = await assignments.ListForProductAsync(
-            companyId, normalizedProductId, cancellationToken);
+        ProductBranchAssignmentQueryResult result;
+        try
+        {
+            result = await assignments.ListForProductAsync(
+                companyId, normalizedProductId, cancellationToken);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw Error(403, "Company database không khớp phạm vi đã xác thực.", exception);
+        }
         if (!result.ProductExists) throw Error(404, "Không tìm thấy sản phẩm trong công ty hiện tại.");
         return result.Assignments;
+    }
+
+    public async Task<ProductCreationAssignment> ResolveCreationAssignmentAsync(
+        ICurrentUserContext context,
+        CancellationToken cancellationToken)
+    {
+        Guid companyId = RequireCompanyScope(context, "product.create");
+        if (!context.ActiveBranchId.HasValue)
+            return new ProductCreationAssignment(companyId, null, context.UserId, ActorName(context));
+
+        Guid branchId = context.ActiveBranchId.Value;
+        if (branchId == Guid.Empty || !accessScope.CanAccessBranch(context, branchId) ||
+            !accessScope.IsInScope(context, companyId, branchId))
+            throw Error(403, "Chi nhánh hiện tại không thuộc phạm vi đã xác thực.");
+
+        await ValidateBranchesAsync(companyId, [branchId], cancellationToken);
+        return new ProductCreationAssignment(
+            companyId,
+            branchId,
+            context.UserId,
+            ActorName(context));
     }
 
     public async Task<bool> IsActiveAsync(
@@ -37,7 +66,15 @@ public sealed class ProductBranchDistributionService(
         Guid companyId = RequireCompanyScope(context);
         string normalizedProductId = RequireProductId(productId);
         await ValidateBranchesAsync(companyId, [branchId], cancellationToken);
-        bool? active = await assignments.IsActiveAsync(companyId, normalizedProductId, branchId, cancellationToken);
+        bool? active;
+        try
+        {
+            active = await assignments.IsActiveAsync(companyId, normalizedProductId, branchId, cancellationToken);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw Error(403, "Company database không khớp phạm vi đã xác thực.", exception);
+        }
         if (!active.HasValue) throw Error(404, "Không tìm thấy sản phẩm trong công ty hiện tại.");
         return active.Value;
     }
@@ -97,7 +134,7 @@ public sealed class ProductBranchDistributionService(
         return new ProductBranchAssignmentChange(normalizedProducts, normalizedBranches, result.ChangedCount);
     }
 
-    private Guid RequireCompanyScope(ICurrentUserContext context)
+    private Guid RequireCompanyScope(ICurrentUserContext context, string requiredPermission = RequiredPermission)
     {
         if (context is null || !context.IsAuthenticated) throw Error(403, "Yêu cầu xác thực.");
         if (!context.ActiveCompanyId.HasValue || context.ActiveCompanyId.Value == Guid.Empty)
@@ -105,7 +142,7 @@ public sealed class ProductBranchDistributionService(
         Guid companyId = context.ActiveCompanyId.Value;
         if (!accessScope.CanAccessCompany(context, companyId))
             throw Error(403, "Không có quyền truy cập công ty hiện tại.");
-        if (!accessScope.HasCompanyPermission(context, companyId, RequiredPermission))
+        if (!accessScope.HasCompanyPermission(context, companyId, requiredPermission))
             throw Error(403, "Không có quyền phân phối sản phẩm cấp công ty.");
         return companyId;
     }

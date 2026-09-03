@@ -213,6 +213,25 @@ public sealed class InventoryOrderServiceTests
     }
 
     [Fact]
+    public async Task AddImportLine_WhenProductIsNotAssignedToBranch_IsRejectedBeforePersistence()
+    {
+        FakeRepository repository = new(Order(InventoryOrderKind.Import));
+        FakeStockPort stock = new() { IsAssignedToBranch = false };
+        InventoryOrderService service = new(repository, stock, new FakeHistoryWriter());
+
+        TtsApplicationException error = await Assert.ThrowsAsync<TtsApplicationException>(() =>
+            service.AddLineAsync(
+                InventoryOrderKind.Import,
+                OrderId,
+                Input(quantity: 5, progress: 0),
+                CancellationToken.None));
+
+        Assert.Equal(403, error.Error.HttpStatus);
+        Assert.Null(repository.Saved);
+        Assert.Empty(stock.Adjustments);
+    }
+
+    [Fact]
     public async Task CreateImportOrder_WithZeroQuantity_KeepsLineIncompleteLikeLegacy()
     {
         FakeRepository repository = new(Order(InventoryOrderKind.Import));
@@ -426,6 +445,7 @@ public sealed class InventoryOrderServiceTests
         public bool RejectRollback { get; init; }
         public double QuantityForSale { get; init; } = 100;
         public double QuantityInStorage { get; init; } = 100;
+        public bool IsAssignedToBranch { get; init; } = true;
         public List<StockAdjustment> Adjustments { get; } = [];
         public List<StockAdjustment> Rollbacks { get; } = [];
 
@@ -448,7 +468,9 @@ public sealed class InventoryOrderServiceTests
             string productId, int variantIndex, CancellationToken cancellationToken) =>
             Task.FromResult<ProductOrderSnapshot?>(new ProductOrderSnapshot(
                 productId, variantIndex, VariantId, "Sản phẩm kiểm thử", "Nhãn hiệu", "SP-1", "100000", null,
-                null, null, QuantityForSale, QuantityInStorage, 25, true));
+                null, null, QuantityForSale, QuantityInStorage, 25, true,
+                IsAssignedToBranch: IsAssignedToBranch,
+                VariantName: "Mặc định"));
     }
 
     private sealed class FakeHistoryWriter : IStorageHistoryWriter

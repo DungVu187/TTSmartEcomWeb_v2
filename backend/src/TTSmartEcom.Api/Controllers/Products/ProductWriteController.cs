@@ -19,7 +19,8 @@ public sealed class ProductWriteController(ProductCatalogWriteService products) 
     [PermissionAuthorize("product.create")]
     public async Task<IActionResult> Create(ProductMutationRequest request, CancellationToken cancellationToken)
     {
-        ProductMutationResult result = await products.CreateAsync(request.ToMutation(), ActorName(), cancellationToken);
+        ProductMutationResult result = await products.CreateAsync(
+            request.ToMutation(), ActorName(), CurrentContext(), cancellationToken);
         return result.Status == ProductMutationStatus.Success
             ? StatusCode(201, new { message = "Product created successfully", product = ProductResponse.From(result.Product!) })
             : MutationError(result);
@@ -159,6 +160,9 @@ public sealed class ProductWriteController(ProductCatalogWriteService products) 
 
     private string? ActorName() =>
         (HttpContext.Items[LegacyPrincipalMiddleware.IdentityItemKey] as UserIdentitySnapshot)?.Name;
+
+    private ICurrentUserContext? CurrentContext() =>
+        HttpContext.Items[CurrentUserContextMiddleware.ContextItemKey] as ICurrentUserContext;
 
     private ObjectResult MutationError(ProductMutationResult result)
     {

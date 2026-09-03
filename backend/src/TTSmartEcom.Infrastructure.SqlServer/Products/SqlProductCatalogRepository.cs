@@ -22,7 +22,7 @@ public sealed class SqlProductCatalogRepository(
     {
         await using SqlConnection connection = companyFactory.Create();
         await connection.OpenAsync(cancellationToken);
-        await ValidateBranchCompanyAsync(connection, query.BranchId, cancellationToken);
+        await ValidateScopeAsync(connection, query.CompanyId, query.BranchId, cancellationToken);
 
         (string predicate, Action<SqlCommand> addParameters) = BuildPredicate(query);
         await using SqlCommand count = new($"SELECT COUNT_BIG(*) FROM dbo.Products p WHERE {predicate};", connection);
@@ -51,15 +51,23 @@ public sealed class SqlProductCatalogRepository(
         string id,
         bool includePrivate,
         CancellationToken cancellationToken) =>
-        FindByIdAsync(id, includePrivate, null, cancellationToken);
+        FindByIdAsync(id, includePrivate, null, null, cancellationToken);
+
+    public Task<ProductRecord?> FindByIdAsync(
+        string id,
+        bool includePrivate,
+        Guid? branchId,
+        CancellationToken cancellationToken) =>
+        FindByIdAsync(id, includePrivate, null, branchId, cancellationToken);
 
     public async Task<ProductRecord?> FindByIdAsync(
         string id,
         bool includePrivate,
+        Guid? companyId,
         Guid? branchId,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<ProductRecord> products = await FindByIdsAsync([id], includePrivate, branchId, cancellationToken);
+        IReadOnlyList<ProductRecord> products = await FindByIdsAsync([id], includePrivate, companyId, branchId, cancellationToken);
         return products.Count == 0 ? null : products[0];
     }
 
@@ -67,11 +75,19 @@ public sealed class SqlProductCatalogRepository(
         IReadOnlyCollection<string> ids,
         bool includePrivate,
         CancellationToken cancellationToken) =>
-        FindByIdsAsync(ids, includePrivate, null, cancellationToken);
+        FindByIdsAsync(ids, includePrivate, null, null, cancellationToken);
+
+    public Task<IReadOnlyList<ProductRecord>> FindByIdsAsync(
+        IReadOnlyCollection<string> ids,
+        bool includePrivate,
+        Guid? branchId,
+        CancellationToken cancellationToken) =>
+        FindByIdsAsync(ids, includePrivate, null, branchId, cancellationToken);
 
     public async Task<IReadOnlyList<ProductRecord>> FindByIdsAsync(
         IReadOnlyCollection<string> ids,
         bool includePrivate,
+        Guid? companyId,
         Guid? branchId,
         CancellationToken cancellationToken)
     {
@@ -83,7 +99,7 @@ public sealed class SqlProductCatalogRepository(
 
         await using SqlConnection connection = companyFactory.Create();
         await connection.OpenAsync(cancellationToken);
-        await ValidateBranchCompanyAsync(connection, branchId, cancellationToken);
+        await ValidateScopeAsync(connection, companyId, branchId, cancellationToken);
         await using SqlCommand command = connection.CreateCommand();
         command.CommandText = $"""
             SELECT p.ProductId,p.PublicId,p.TypeName,p.Name,p.NameUnsigned,p.Display,p.Code,p.VatRaw,p.Adjusted,
@@ -102,10 +118,16 @@ public sealed class SqlProductCatalogRepository(
         return await MaterializeAsync(connection, rows, includePrivate, branchId, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<ProductTypeRecord>> ListTypesAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<ProductTypeRecord>> ListTypesAsync(CancellationToken cancellationToken)
+        => ListTypesAsync(null, cancellationToken);
+
+    public async Task<IReadOnlyList<ProductTypeRecord>> ListTypesAsync(
+        Guid? companyId,
+        CancellationToken cancellationToken)
     {
         await using SqlConnection connection = companyFactory.Create();
         await connection.OpenAsync(cancellationToken);
+        await ValidateScopeAsync(connection, companyId, null, cancellationToken);
         await using SqlCommand command = new("SELECT PublicId,Name,Icon FROM dbo.ProductTypes ORDER BY Name;", connection);
         await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
         List<ProductTypeRecord> result = [];
@@ -280,18 +302,24 @@ public sealed class SqlProductCatalogRepository(
         parameters.Add(command => command.Parameters.AddWithValue("@" + parameter, value.Trim()));
     }
 
-    private async Task ValidateBranchCompanyAsync(
+    private async Task ValidateScopeAsync(
         SqlConnection companyConnection,
+        Guid? companyId,
         Guid? branchId,
         CancellationToken cancellationToken)
     {
+        await using SqlCommand command = new("SELECT CompanyId FROM dbo.CompanyDatabaseInfo WHERE SingletonKey=1;", companyConnection);
+        object? configured = await command.ExecuteScalarAsync(cancellationToken);
+        if (configured is not Guid configuredCompanyId)
+            throw new UnauthorizedAccessException("Company database assignment metadata is missing.");
+        if (companyId.HasValue && configuredCompanyId != companyId.Value)
+            throw new UnauthorizedAccessException("Requested company does not match the Company database assignment.");
         if (!branchId.HasValue) return;
+
         SqlBranchDatabaseScope branchScope = await branchProducts.GetScopeAsync(cancellationToken);
         if (branchScope.BranchId != branchId.Value)
             throw new UnauthorizedAccessException("Requested branch does not match the operational database assignment.");
-        await using SqlCommand command = new("SELECT CompanyId FROM dbo.CompanyDatabaseInfo WHERE SingletonKey=1;", companyConnection);
-        object? companyId = await command.ExecuteScalarAsync(cancellationToken);
-        if (companyId is not Guid value || value != branchScope.CompanyId)
+        if (configuredCompanyId != branchScope.CompanyId)
             throw new UnauthorizedAccessException("Requested Company and Branch database assignments do not match.");
     }
 

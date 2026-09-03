@@ -11,6 +11,13 @@ IF @CompanyId IS NULL OR @BranchId IS NULL
 IF LEN(N'$(ScriptChecksum)') <> 64 OR N'$(ScriptChecksum)' LIKE N'%[^0-9A-F]%'
     THROW 60603, N'ScriptChecksum SHA-256 không hợp lệ.', 1;
 
+IF OBJECT_ID(N'dbo.SchemaVersions', N'U') IS NULL
+    THROW 60608, N'Thiếu SchemaVersions; phải chạy migration Branch nền trước.', 1;
+IF EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE MigrationNumber = 10005 AND ISNULL(ScriptChecksum, N'') <> N'$(ScriptChecksum)')
+    THROW 60607, N'Checksum drift của Branch Product projection migration.', 1;
+IF EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE MigrationNumber = 10005 AND ScriptChecksum = N'$(ScriptChecksum)')
+    RETURN;
+
 BEGIN TRANSACTION;
 
 DECLARE @LockResult int;
@@ -68,12 +75,7 @@ BEGIN
     );
 END;
 
-IF EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE MigrationNumber = 10005 AND ScriptChecksum <> N'$(ScriptChecksum)')
-    THROW 60607, N'Checksum drift của Branch Product projection migration.', 1;
-IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE MigrationNumber = 10005)
-BEGIN
-    INSERT dbo.SchemaVersions (SchemaVersionId, MigrationNumber, MigrationName, ScriptChecksum)
-    VALUES (NEWID(), 10005, N'CreateBranchProductProjection', N'$(ScriptChecksum)');
-END;
+INSERT dbo.SchemaVersions (SchemaVersionId, MigrationNumber, MigrationName, ScriptChecksum)
+VALUES (NEWID(), 10005, N'CreateBranchProductProjection', N'$(ScriptChecksum)');
 
 COMMIT TRANSACTION;

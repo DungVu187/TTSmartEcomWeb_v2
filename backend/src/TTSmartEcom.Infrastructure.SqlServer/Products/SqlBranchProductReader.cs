@@ -105,7 +105,7 @@ public sealed class SqlBranchProductReader(
             await using SqlCommand command = company.CreateCommand();
             command.CommandText = $"""
                 SELECT p.ProductId,p.PublicId,p.Name,p.BrandName,p.Code,p.Display,
-                       v.ProductVariantId,v.PublicId,v.SortOrder,v.Name,v.PriceRaw,v.DetailsJson,
+                       v.ProductVariantId,v.PublicId,v.SortOrder,v.Name,v.DetailsJson,
                        CASE WHEN a.ProductBranchAssignmentId IS NULL THEN CONVERT(bit,0) ELSE CONVERT(bit,1) END
                 FROM dbo.Products p
                 INNER JOIN dbo.ProductVariants v ON v.ProductId=p.ProductId
@@ -120,14 +120,14 @@ public sealed class SqlBranchProductReader(
             await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                bool assigned = reader.GetBoolean(12);
+                bool assigned = reader.GetBoolean(11);
                 if (requireActiveAssignment && !assigned) continue;
                 variants.Add(new CompanyVariant(
                     reader.GetGuid(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2),
                     reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4),
                     !reader.IsDBNull(5) && reader.GetBoolean(5), reader.GetGuid(6), reader.GetString(7),
                     reader.GetInt32(8), reader.IsDBNull(9) ? null : reader.GetString(9),
-                    reader.IsDBNull(10) ? null : reader.GetString(10), reader.IsDBNull(11) ? "{}" : reader.GetString(11), assigned));
+                    reader.IsDBNull(10) ? "{}" : reader.GetString(10), assigned));
             }
         }
 
@@ -247,7 +247,6 @@ public sealed class SqlBranchProductReader(
         string ProductVariantPublicId,
         int VariantIndex,
         string? VariantName,
-        string? DefaultPriceRaw,
         string DetailsJson,
         bool IsAssigned);
 }

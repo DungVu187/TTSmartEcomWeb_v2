@@ -3,11 +3,11 @@ param(
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
     [string] $ServerInstance,
-    [ValidateSet('TTSmart')]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_]{0,127}$')]
     [string] $CompanyDatabase = 'TTSmart',
-    [ValidateSet('TTSmart_MAIN_online')]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_]{0,120}_online$')]
     [string] $BranchDatabase = 'TTSmart_MAIN_online',
-    [ValidateSet('ttsmart.com.vn')]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$')]
     [string] $ControlDatabase = 'ttsmart.com.vn',
     [Parameter(Mandatory)]
     [guid] $CompanyId,
@@ -80,6 +80,38 @@ WHERE b.BranchId=CONVERT(uniqueidentifier,N'$BranchId')
     }
 }
 
+function Assert-DataDatabaseMetadata {
+    $companyQuery = @"
+SET NOCOUNT ON;
+SELECT CONVERT(nvarchar(36), CompanyId)
+FROM dbo.CompanyDatabaseInfo
+WHERE SingletonKey=1
+  AND CompanyId=CONVERT(uniqueidentifier,N'$CompanyId')
+  AND CompanyCode=N'$CompanyCode'
+  AND DatabaseKind=N'CompanyShared';
+"@
+    $configuredCompany = (& $sqlCmd -S $ServerInstance -E -C -b -I -d $CompanyDatabase -h -1 -W -Q $companyQuery).Trim()
+    if ($LASTEXITCODE -ne 0 -or $configuredCompany -ne $CompanyId.ToString()) {
+        throw "CompanyDatabaseInfo trên [$CompanyDatabase] không khớp Company đã chọn."
+    }
+
+    $branchQuery = @"
+SET NOCOUNT ON;
+SELECT CONVERT(nvarchar(36), BranchId)
+FROM dbo.BranchDatabaseInfo
+WHERE SingletonKey=1
+  AND CompanyId=CONVERT(uniqueidentifier,N'$CompanyId')
+  AND BranchId=CONVERT(uniqueidentifier,N'$BranchId')
+  AND CompanyCode=N'$CompanyCode'
+  AND BranchCode=N'$BranchCode'
+  AND DatabaseKind=N'BranchOperational';
+"@
+    $configuredBranch = (& $sqlCmd -S $ServerInstance -E -C -b -I -d $BranchDatabase -h -1 -W -Q $branchQuery).Trim()
+    if ($LASTEXITCODE -ne 0 -or $configuredBranch -ne $BranchId.ToString()) {
+        throw "BranchDatabaseInfo trên [$BranchDatabase] không khớp Company/Branch đã chọn."
+    }
+}
+
 function Initialize-BranchVariantProjection {
     Add-Type -AssemblyName System.Data
     $companyBuilder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
@@ -129,11 +161,12 @@ WHERE a.BranchId=@branchId AND a.IsActive=1 AND p.IsDeleted=0;
                 $command = $branchConnection.CreateCommand()
                 $command.Transaction = $transaction
                 $command.CommandText = @"
-UPDATE dbo.BranchProductVariants WITH (UPDLOCK,HOLDLOCK)
-SET ProductId=@productId,Price=@price,PriceRaw=@priceRaw,ImportPrice=@importPrice,
-    ImportPriceRaw=@importPriceRaw,IsActive=1,UpdatedAtUtc=SYSUTCDATETIME()
-WHERE ProductVariantId=@variantId;
-IF @@ROWCOUNT=0
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM dbo.BranchProductVariants WITH (UPDLOCK,HOLDLOCK)
+    WHERE ProductVariantId=@variantId
+)
     INSERT dbo.BranchProductVariants
         (BranchProductVariantId,ProductId,ProductVariantId,Price,PriceRaw,ImportPrice,ImportPriceRaw,IsActive)
     VALUES (NEWID(),@productId,@variantId,@price,@priceRaw,@importPrice,@importPriceRaw,1);
@@ -168,6 +201,7 @@ Assert-ControlPlaneBranch
 
 Invoke-VersionedMigration -Database $BranchDatabase -MigrationNumber 10002 -ScriptName '002_PrepareBranchDatabase.sql' -Variables $branch
 Invoke-VersionedMigration -Database $CompanyDatabase -MigrationNumber 10001 -ScriptName '001_PrepareCompanyDatabase.sql' -Variables $shared
+Assert-DataDatabaseMetadata
 
 Invoke-SqlCmdChecked -Database $ControlDatabase -Arguments @(
     '-i', (Join-Path $root '003_RegisterSingleCompanyBranch.sql'),

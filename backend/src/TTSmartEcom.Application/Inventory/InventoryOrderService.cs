@@ -325,12 +325,12 @@ public sealed partial class InventoryOrderService(
     {
         if (!MongoId(input.ProductId)) throw Error(400, "Mã sản phẩm không hợp lệ.");
         ValidateQuantities(kind, input.Quantity, input.ProgressQuantity);
+        ProductOrderSnapshot product = loadedProduct ?? await RequireProductAsync(input.ProductId, cancellationToken);
         string? price = input.Price;
         string? importPrice = null;
         double? profit = null;
         if (kind == InventoryOrderKind.Export)
         {
-            ProductOrderSnapshot product = loadedProduct ?? await RequireProductAsync(input.ProductId, cancellationToken);
             (price, importPrice, profit) = ResolveNewExportPricing(input, product);
         }
         bool skipStockUpdate = kind == InventoryOrderKind.Export && input.SkipStockUpdate == true;
@@ -347,7 +347,12 @@ public sealed partial class InventoryOrderService(
             skipStockUpdate,
             LimitNullable(input.Note, 2_000),
             LimitNullable(input.Vat, 100),
-            SubdocumentId: null);
+            Name: product.Name,
+            SubdocumentId: null,
+            ProductCodeSnapshot: product.Code,
+            VariantNameSnapshot: product.VariantName,
+            VariantPublicIdSnapshot: product.VariantId,
+            UnitPriceSnapshot: LimitNullable(price, 100));
     }
 
     private async Task<(InventoryOrderLine Line, StockAdjustment? Adjustment, string? ProductName)> PrepareCompletionAsync(

@@ -73,6 +73,40 @@ public sealed class ProductBranchDistributionServiceTests
         Assert.Equal(403, error.Error.HttpStatus);
     }
 
+    [Fact]
+    public async Task ResolveCreationAssignmentAsync_UsesTrustedActiveBranch()
+    {
+        FakeBranches branches = new(new BranchCompanyReference(BranchId, CompanyId, "HN", true));
+        ProductBranchDistributionService service = new(new FakeAssignments(), branches, new AccessScopeService());
+        CurrentUserContext context = BranchProductCreator();
+
+        ProductCreationAssignment assignment = await service.ResolveCreationAssignmentAsync(
+            context,
+            CancellationToken.None);
+
+        Assert.Equal(CompanyId, assignment.CompanyId);
+        Assert.Equal(BranchId, assignment.BranchId);
+        Assert.Equal(context.UserId, assignment.ActorUserId);
+    }
+
+    [Fact]
+    public async Task ResolveCreationAssignmentAsync_InCompanyWorkspace_DoesNotInventBranch()
+    {
+        ProductBranchDistributionService service = new(
+            new FakeAssignments(),
+            new FakeBranches(),
+            new AccessScopeService());
+        CurrentUserContext context = CompanyAdmin(
+            new HashSet<string>(["product.create"], StringComparer.Ordinal));
+
+        ProductCreationAssignment assignment = await service.ResolveCreationAssignmentAsync(
+            context,
+            CancellationToken.None);
+
+        Assert.Equal(CompanyId, assignment.CompanyId);
+        Assert.Null(assignment.BranchId);
+    }
+
     private static CurrentUserContext CompanyAdmin(IReadOnlySet<string>? permissions = null)
     {
         IReadOnlySet<string> granted = permissions ?? new HashSet<string>(["product.edit"], StringComparer.Ordinal);
@@ -81,6 +115,18 @@ public sealed class ProductBranchDistributionServiceTests
         return new CurrentUserContext(
             Guid.NewGuid(), true, false, "Company Admin", "admin@example.test", null,
             [membership], CompanyId, [], null, ["company_admin"], granted, true);
+    }
+
+    private static CurrentUserContext BranchProductCreator()
+    {
+        IReadOnlySet<string> permissions = new HashSet<string>(["product.create"], StringComparer.Ordinal);
+        CompanyMembershipContext company = new(
+            CompanyId, "TTSmart", "TTSmart", Guid.NewGuid(), 1, ["company_admin"], permissions);
+        BranchMembershipContext branch = new(
+            CompanyId, BranchId, "HN", "Hà Nội", Guid.NewGuid(), true, ["company_admin"], permissions);
+        return new CurrentUserContext(
+            Guid.NewGuid(), true, false, "Company Admin", "admin@example.test", null,
+            [company], CompanyId, [branch], BranchId, ["company_admin"], permissions, true);
     }
 
     private sealed class FakeBranches(params BranchCompanyReference[] values) : ICompanyBranchDirectory

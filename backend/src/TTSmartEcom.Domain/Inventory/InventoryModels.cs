@@ -22,7 +22,11 @@ public sealed record InventoryOrderLine(
     string? Name = null,
     string? Brand = null,
     string? Image = null,
-    string? SubdocumentId = null);
+    string? SubdocumentId = null,
+    string? ProductCodeSnapshot = null,
+    string? VariantNameSnapshot = null,
+    string? VariantPublicIdSnapshot = null,
+    string? UnitPriceSnapshot = null);
 
 public sealed record InventoryOrder(
     string Id,

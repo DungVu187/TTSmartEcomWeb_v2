@@ -99,6 +99,13 @@ public sealed class SqlProductBranchAssignmentRepository(ICompanyDbConnectionFac
             await transaction.CommitAsync(cancellationToken);
             return new(true, changed, result, []);
         }
+        catch (SqlException exception) when (exception.Number is 2601 or 2627)
+        {
+            if (transaction.Connection is not null) await transaction.RollbackAsync(cancellationToken);
+            throw new InvalidOperationException(
+                "Product Branch assignment was changed concurrently.",
+                exception);
+        }
         catch
         {
             if (transaction.Connection is not null) await transaction.RollbackAsync(cancellationToken);

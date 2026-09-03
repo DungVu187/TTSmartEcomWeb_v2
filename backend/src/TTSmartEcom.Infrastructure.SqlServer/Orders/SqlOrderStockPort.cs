@@ -50,20 +50,21 @@ public sealed class SqlOrderStockPort(
         CancellationToken cancellationToken)
     {
         if (adjustments.Count == 0) return [];
-        Dictionary<(string ProductId, int VariantIndex), SqlBranchProductSnapshot> products = [];
+        IReadOnlyList<SqlBranchProductSnapshot> loaded = await branchProducts.FindVariantsAsync(
+            adjustments.Select(adjustment => adjustment.ProductId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            requireActiveAssignment: false,
+            cancellationToken);
+        Dictionary<(string ProductId, int VariantIndex), SqlBranchProductSnapshot> products = loaded.ToDictionary(
+            product => (product.ProductPublicId, product.VariantIndex),
+            ProductVariantKeyComparer.Instance);
         foreach (StockAdjustment adjustment in adjustments)
         {
-            SqlBranchProductSnapshot? product = await branchProducts.FindVariantAsync(
-                adjustment.ProductId,
-                adjustment.VariantIndex,
-                requireActiveAssignment: false,
-                cancellationToken);
-            if (product is null || adjustment.ExpectedVariantId is not null &&
+            if (!products.TryGetValue((adjustment.ProductId, adjustment.VariantIndex), out SqlBranchProductSnapshot? product) ||
+                adjustment.ExpectedVariantId is not null &&
                 !adjustment.ExpectedVariantId.Equals(product.ProductVariantPublicId, StringComparison.OrdinalIgnoreCase))
                 throw Fail(404, "Không tìm thấy Product/Variant trong Company DB.");
             if (adjustment.RequireActiveAssignment && !product.IsAssigned)
                 throw Fail(403, "Sản phẩm chưa được phân phối cho chi nhánh hiện tại.");
-            products[(adjustment.ProductId, adjustment.VariantIndex)] = product;
         }
 
         await using SqlConnection connection = factory.Create();
@@ -197,4 +198,18 @@ public sealed class SqlOrderStockPort(
         root.TryGetProperty(name, out JsonElement value) && value.TryGetDouble(out double result) ? result : fallback;
     private static TTSmartEcom.Application.Common.Errors.ApplicationException Fail(int status, string message, Exception? inner = null) =>
         new(new ApplicationError($"TTS-STOCK-{status}", 4400 + status, status, message), inner);
+
+    private sealed class ProductVariantKeyComparer : IEqualityComparer<(string ProductId, int VariantIndex)>
+    {
+        public static readonly ProductVariantKeyComparer Instance = new();
+
+        public bool Equals(
+            (string ProductId, int VariantIndex) x,
+            (string ProductId, int VariantIndex) y) =>
+            x.VariantIndex == y.VariantIndex &&
+            StringComparer.OrdinalIgnoreCase.Equals(x.ProductId, y.ProductId);
+
+        public int GetHashCode((string ProductId, int VariantIndex) value) =>
+            HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(value.ProductId), value.VariantIndex);
+    }
 }

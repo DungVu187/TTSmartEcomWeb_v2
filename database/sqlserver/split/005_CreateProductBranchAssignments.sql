@@ -15,6 +15,16 @@ IF UPPER(N'$(BranchCode)') <> N'MAIN'
 IF LEN(N'$(ScriptChecksum)') <> 64 OR N'$(ScriptChecksum)' LIKE N'%[^0-9A-F]%'
     THROW 60505, N'ScriptChecksum SHA-256 không hợp lệ.', 1;
 
+IF OBJECT_ID(N'dbo.SchemaVersions', N'U') IS NULL
+    THROW 60510, N'Thiếu SchemaVersions; phải chạy migration Company nền trước.', 1;
+IF EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE MigrationNumber = 10004 AND ISNULL(ScriptChecksum, N'') <> N'$(ScriptChecksum)')
+    THROW 60509, N'Checksum drift của Product Branch assignment migration.', 1;
+IF EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE MigrationNumber = 10004 AND ScriptChecksum = N'$(ScriptChecksum)')
+BEGIN
+    SELECT CAST(0 AS bigint) AS ProductCount, CAST(0 AS bigint) AS ActiveBefore, CAST(0 AS bigint) AS ActiveAfter;
+    RETURN;
+END;
+
 BEGIN TRANSACTION;
 
 DECLARE @LockResult int;
@@ -104,13 +114,8 @@ DECLARE @ActiveAfter bigint =
 IF @ActiveAfter <> @ProductCount OR @ActiveAfter < @ActiveBefore
     THROW 60508, N'Không bảo toàn đủ Product hiện hữu cho Branch MAIN.', 1;
 
-IF EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE MigrationNumber = 10004 AND ScriptChecksum <> N'$(ScriptChecksum)')
-    THROW 60509, N'Checksum drift của Product Branch assignment migration.', 1;
-IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE MigrationNumber = 10004)
-BEGIN
-    INSERT dbo.SchemaVersions (SchemaVersionId, MigrationNumber, MigrationName, ScriptChecksum)
-    VALUES (NEWID(), 10004, N'CreateProductBranchAssignmentsAndBackfillMain', N'$(ScriptChecksum)');
-END;
+INSERT dbo.SchemaVersions (SchemaVersionId, MigrationNumber, MigrationName, ScriptChecksum)
+VALUES (NEWID(), 10004, N'CreateProductBranchAssignmentsAndBackfillMain', N'$(ScriptChecksum)');
 
 COMMIT TRANSACTION;
 

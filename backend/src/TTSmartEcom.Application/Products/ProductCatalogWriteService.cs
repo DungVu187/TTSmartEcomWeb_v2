@@ -3,6 +3,7 @@ using System.Text;
 using TTSmartEcom.Application.Abstractions.Products;
 using TTSmartEcom.Application.Audit;
 using TTSmartEcom.Domain.Products;
+using TTSmartEcom.Domain.Security;
 
 namespace TTSmartEcom.Application.Products;
 
@@ -10,7 +11,8 @@ public sealed class ProductCatalogWriteService(
     IProductCatalogWriteRepository repository,
     IProductCatalogRepository reads,
     ActivityLogWriteService activityLogs,
-    ProductAccessScopeService accessScope)
+    ProductAccessScopeService accessScope,
+    ProductBranchDistributionService distribution)
 {
     private static readonly HashSet<string> ValidSortIrrelevant = new(StringComparer.Ordinal);
     private const int MaxBulkItems = 200;
@@ -20,15 +22,39 @@ public sealed class ProductCatalogWriteService(
 
     public async Task<ProductMutationResult> CreateAsync(
         ProductMutation mutation, string? actorName, CancellationToken cancellationToken)
+        => await CreateAsync(mutation, actorName, null, cancellationToken);
+
+    public async Task<ProductMutationResult> CreateAsync(
+        ProductMutation mutation,
+        string? actorName,
+        ICurrentUserContext? currentContext,
+        CancellationToken cancellationToken)
     {
         ProductMutation? normalized = NormalizeProduct(mutation, requireNameAndDefaultEarn: true);
         if (normalized is null) return Invalid("Dữ liệu sản phẩm không hợp lệ");
-        ProductMutationResult duplicate = await RejectDuplicateCodeAsync(normalized.Code, null, cancellationToken);
-        if (duplicate.Status == ProductMutationStatus.Conflict) return duplicate;
-        ProductMutationResult result = await repository.CreateAsync(normalized, cancellationToken);
-        if (CanAudit(actorName) && result is { Status: ProductMutationStatus.Success, Product: not null })
-            await activityLogs.TryAppendAsync(ActivityLogEntries.CreateProduct(actorName!, result.Product), cancellationToken);
-        return result;
+        ProductCreationAssignment? assignment = currentContext is null
+            ? null
+            : await distribution.ResolveCreationAssignmentAsync(currentContext, cancellationToken);
+        try
+        {
+            ProductMutationResult duplicate = await RejectDuplicateCodeAsync(
+                normalized.Code,
+                null,
+                assignment?.CompanyId,
+                cancellationToken);
+            if (duplicate.Status == ProductMutationStatus.Conflict) return duplicate;
+
+            ProductMutationResult result = await repository.CreateAsync(normalized, assignment, cancellationToken);
+            if (CanAudit(actorName) && result is { Status: ProductMutationStatus.Success, Product: not null })
+                await activityLogs.TryAppendAsync(ActivityLogEntries.CreateProduct(actorName!, result.Product), cancellationToken);
+            return result;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new ProductMutationResult(
+                ProductMutationStatus.Forbidden,
+                Message: "Company database không khớp phạm vi đã xác thực.");
+        }
     }
 
     public Task<ProductMutationResult> UpdateAsync(string id, ProductMutation mutation, CancellationToken cancellationToken) =>
@@ -328,11 +354,25 @@ public sealed class ProductCatalogWriteService(
             new ProductStockMutation(quantity, Trim(userName), Trim(orderId), Trim(orderName), isAiScan), cancellationToken);
     }
 
-    private async Task<ProductMutationResult> RejectDuplicateCodeAsync(string? code, string? excludeId, CancellationToken cancellationToken)
+    private Task<ProductMutationResult> RejectDuplicateCodeAsync(
+        string? code,
+        string? excludeId,
+        CancellationToken cancellationToken) =>
+        RejectDuplicateCodeAsync(code, excludeId, null, cancellationToken);
+
+    private async Task<ProductMutationResult> RejectDuplicateCodeAsync(
+        string? code,
+        string? excludeId,
+        Guid? companyId,
+        CancellationToken cancellationToken)
     {
         string normalized = NormalizeCode(code);
         if (normalized.Length == 0) return new ProductMutationResult(ProductMutationStatus.Success);
-        ProductRecord? existing = await repository.FindEquivalentCodeAsync(normalized, excludeId, cancellationToken);
+        ProductRecord? existing = await repository.FindEquivalentCodeAsync(
+            normalized,
+            excludeId,
+            companyId,
+            cancellationToken);
         return existing is null
             ? new ProductMutationResult(ProductMutationStatus.Success)
             : new ProductMutationResult(ProductMutationStatus.Conflict, Message:

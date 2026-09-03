@@ -14,6 +14,10 @@ public sealed class ProductBranchSqlBoundaryTests
         Assert.Contains("ScriptChecksum", sql, StringComparison.Ordinal);
         Assert.Contains("@ActiveBefore", sql, StringComparison.Ordinal);
         Assert.Contains("@ActiveAfter", sql, StringComparison.Ordinal);
+        Assert.True(
+            sql.IndexOf("ScriptChecksum = N'$(ScriptChecksum)'", StringComparison.Ordinal) <
+            sql.IndexOf("BEGIN TRANSACTION", StringComparison.Ordinal),
+            "Migration phải dừng trước khi backfill nếu checksum đã được áp dụng.");
         Assert.DoesNotContain("DROP TABLE", sql, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("DELETE FROM dbo.Products", sql, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("FOREIGN KEY (BranchId)", sql, StringComparison.OrdinalIgnoreCase);
@@ -51,6 +55,18 @@ public sealed class ProductBranchSqlBoundaryTests
     }
 
     [Fact]
+    public void BranchScopedProductCreate_AssignsProductInsideCompanyTransaction()
+    {
+        string source = Read("backend", "src", "TTSmartEcom.Infrastructure.SqlServer", "Products", "SqlProductMutationRepository.cs");
+
+        int assignment = source.IndexOf("AddCreationAssignmentAsync", StringComparison.Ordinal);
+        int commit = source.IndexOf("transaction.CommitAsync", assignment, StringComparison.Ordinal);
+        Assert.True(assignment >= 0 && commit > assignment);
+        Assert.Contains("INSERT dbo.ProductBranchAssignments", source, StringComparison.Ordinal);
+        Assert.Contains("source = \"branch_product_create\"", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Catalog_LoadsVariantsAndBranchStateInBatches()
     {
         string source = Read("backend", "src", "TTSmartEcom.Infrastructure.SqlServer", "Products", "SqlProductCatalogRepository.cs");
@@ -74,6 +90,22 @@ public sealed class ProductBranchSqlBoundaryTests
             Assert.Contains("variantPublicIdSnapshot", source, StringComparison.Ordinal);
             Assert.Contains("unitPriceSnapshot", source, StringComparison.Ordinal);
         }
+
+
+        Assert.Contains("x.ProductNameSnapshot??product.ProductName", sales, StringComparison.Ordinal);
+        Assert.Contains("x.Name??product?.ProductName", inventory, StringComparison.Ordinal);
+        Assert.Contains("x.VariantPublicIdSnapshot??product?.ProductVariantPublicId", inventory, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProjectionBootstrap_DoesNotOverwriteBranchSpecificPrices()
+    {
+        string script = Read("database", "sqlserver", "split", "Run-DataSplitMigrations.ps1");
+
+        Assert.Contains("IF NOT EXISTS", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("UPDATE dbo.BranchProductVariants", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ValidateSet('TTSmart_MAIN_online')", script, StringComparison.Ordinal);
+        Assert.Contains("Assert-DataDatabaseMetadata", script, StringComparison.Ordinal);
     }
 
     private static int Count(string source, string value) =>

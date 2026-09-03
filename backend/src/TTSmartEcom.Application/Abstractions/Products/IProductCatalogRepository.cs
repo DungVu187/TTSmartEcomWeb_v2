@@ -17,7 +17,8 @@ public sealed record ProductListQuery(
     bool IncludePrivate,
     IReadOnlyCollection<string>? AllowedProductIds = null,
     bool? Adjusted = null,
-    Guid? BranchId = null);
+    Guid? BranchId = null,
+    Guid? CompanyId = null);
 
 public sealed record ProductPage(
     long Total,
@@ -63,6 +64,12 @@ public sealed record ProductMutation(
     ProductInfoMutation? InfoDoc,
     IReadOnlyList<ProductLinkMutation>? Documents,
     IReadOnlyList<ProductVariantMutation>? Variants);
+
+public sealed record ProductCreationAssignment(
+    Guid CompanyId,
+    Guid? BranchId,
+    Guid? ActorUserId,
+    string ActorName);
 
 public enum ProductMutationStatus
 {
@@ -127,6 +134,14 @@ public interface IProductCatalogRepository
         CancellationToken cancellationToken) =>
         FindByIdAsync(id, includePrivate, cancellationToken);
 
+    Task<ProductRecord?> FindByIdAsync(
+        string id,
+        bool includePrivate,
+        Guid? companyId,
+        Guid? branchId,
+        CancellationToken cancellationToken) =>
+        FindByIdAsync(id, includePrivate, branchId, cancellationToken);
+
     Task<IReadOnlyList<ProductRecord>> FindByIdsAsync(
         IReadOnlyCollection<string> ids,
         bool includePrivate,
@@ -139,7 +154,20 @@ public interface IProductCatalogRepository
         CancellationToken cancellationToken) =>
         FindByIdsAsync(ids, includePrivate, cancellationToken);
 
+    Task<IReadOnlyList<ProductRecord>> FindByIdsAsync(
+        IReadOnlyCollection<string> ids,
+        bool includePrivate,
+        Guid? companyId,
+        Guid? branchId,
+        CancellationToken cancellationToken) =>
+        FindByIdsAsync(ids, includePrivate, branchId, cancellationToken);
+
     Task<IReadOnlyList<ProductTypeRecord>> ListTypesAsync(CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ProductTypeRecord>> ListTypesAsync(
+        Guid? companyId,
+        CancellationToken cancellationToken) =>
+        ListTypesAsync(cancellationToken);
 }
 
 public interface IProductCatalogWriteRepository
@@ -147,7 +175,20 @@ public interface IProductCatalogWriteRepository
 
     Task<ProductRecord?> FindEquivalentCodeAsync(string normalizedCode, string? excludeId, CancellationToken cancellationToken);
 
+    Task<ProductRecord?> FindEquivalentCodeAsync(
+        string normalizedCode,
+        string? excludeId,
+        Guid? companyId,
+        CancellationToken cancellationToken) =>
+        FindEquivalentCodeAsync(normalizedCode, excludeId, cancellationToken);
+
     Task<ProductMutationResult> CreateAsync(ProductMutation product, CancellationToken cancellationToken);
+
+    Task<ProductMutationResult> CreateAsync(
+        ProductMutation product,
+        ProductCreationAssignment? assignment,
+        CancellationToken cancellationToken) =>
+        CreateAsync(product, cancellationToken);
 
     Task<ProductMutationResult> UpdateAsync(string id, ProductMutation product, CancellationToken cancellationToken);
 

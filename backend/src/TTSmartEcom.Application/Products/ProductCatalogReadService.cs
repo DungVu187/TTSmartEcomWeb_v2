@@ -1,4 +1,5 @@
 using TTSmartEcom.Application.Abstractions.Products;
+using TTSmartEcom.Application.Common.Errors;
 using TTSmartEcom.Domain.Products;
 
 namespace TTSmartEcom.Application.Products;
@@ -10,6 +11,11 @@ public sealed class ProductCatalogReadService(
     public Task<IReadOnlyList<ProductTypeRecord>> ListTypesAsync(CancellationToken cancellationToken) =>
         repository.ListTypesAsync(cancellationToken);
 
+    public Task<IReadOnlyList<ProductTypeRecord>> ListTypesAsync(
+        ProductViewer? viewer,
+        CancellationToken cancellationToken) =>
+        InTrustedScopeAsync(() => repository.ListTypesAsync(viewer?.CompanyId, cancellationToken));
+
     public async Task<IReadOnlyList<ProductRecord>> TopPurchasedAsync(
         ProductViewer? viewer,
         CancellationToken cancellationToken)
@@ -17,12 +23,13 @@ public sealed class ProductCatalogReadService(
         IReadOnlySet<string>? allowed = await accessScope.ResolveAllowedProductIdsAsync(
             viewer,
             cancellationToken);
-        ProductPage page = await repository.ListAsync(new ProductListQuery(
-            1, 10, null, null, null, null, null, null, "purchaseCount", "desc",
-            viewer?.IsPrivileged == true ? null : true,
-            IncludePrivate: false,
-            AllowedProductIds: allowed,
-            BranchId: viewer?.BranchId), cancellationToken);
+        ProductPage page = await InTrustedScopeAsync(() => repository.ListAsync(new ProductListQuery(
+                1, 10, null, null, null, null, null, null, "purchaseCount", "desc",
+                viewer?.IsPrivileged == true ? null : true,
+                IncludePrivate: false,
+                AllowedProductIds: allowed,
+                BranchId: viewer?.BranchId,
+                CompanyId: viewer?.CompanyId), cancellationToken));
         return page.Products;
     }
 
@@ -42,11 +49,12 @@ public sealed class ProductCatalogReadService(
             viewer,
             cancellationToken);
         if (allowed is not null && !allowed.Contains(normalizedId)) return null;
-        return await repository.FindByIdAsync(
+        return await InTrustedScopeAsync(() => repository.FindByIdAsync(
             normalizedId,
             includePrivate && viewer?.IsPrivileged == true,
+            viewer?.CompanyId,
             viewer?.BranchId,
-            cancellationToken);
+            cancellationToken));
     }
 
     public async Task<ProductPage> ListAsync(
@@ -81,9 +89,9 @@ public sealed class ProductCatalogReadService(
             viewer,
             cancellationToken,
             stationId);
-        return await repository.ListAsync(
+        return await InTrustedScopeAsync(() => repository.ListAsync(
             new ProductListQuery(page, limit, search, code, type, brand, section, value,
-                sortBy, sortOrder, display, viewer?.IsPrivileged == true, allowed, adjusted, viewer?.BranchId), cancellationToken);
+                sortBy, sortOrder, display, viewer?.IsPrivileged == true, allowed, adjusted, viewer?.BranchId, viewer?.CompanyId), cancellationToken));
     }
 
     public async Task<(bool Valid, IReadOnlyList<ProductRecord> Products)> FetchByIdsAsync(
@@ -116,12 +124,31 @@ public sealed class ProductCatalogReadService(
         }
         IReadOnlyList<ProductRecord> products = safeIds.Length == 0
             ? []
-            : await repository.FindByIdsAsync(
+            : await InTrustedScopeAsync(() => repository.FindByIdsAsync(
                 safeIds,
                 includePrivate && viewer?.IsPrivileged == true,
+                viewer?.CompanyId,
                 viewer?.BranchId,
-                cancellationToken);
+                cancellationToken));
         return (true, products);
+    }
+
+    private static async Task<T> InTrustedScopeAsync<T>(Func<Task<T>> action)
+    {
+        try
+        {
+            return await action();
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new TTSmartEcom.Application.Common.Errors.ApplicationException(
+                new ApplicationError(
+                    "TTS-PRODUCT-SCOPE-0403",
+                    4403,
+                    403,
+                    "Phạm vi Company/Branch không khớp database được gán."),
+                exception);
+        }
     }
 
     private static bool IsSafeIdentifier(string? value) =>

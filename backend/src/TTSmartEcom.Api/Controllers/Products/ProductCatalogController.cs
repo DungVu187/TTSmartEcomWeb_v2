@@ -17,7 +17,7 @@ public sealed class ProductCatalogController(ProductCatalogReadService products)
     [AllowAnonymous]
     public async Task<ActionResult<IReadOnlyList<ProductTypeResponse>>> Types(CancellationToken cancellationToken)
     {
-        var values = await products.ListTypesAsync(cancellationToken);
+        var values = await products.ListTypesAsync(Viewer(), cancellationToken);
         return Ok(values.Select(value => new ProductTypeResponse(value.Id, value.Type, value.Icon, value.CreatedAt, value.UpdatedAt)).ToArray());
     }
 

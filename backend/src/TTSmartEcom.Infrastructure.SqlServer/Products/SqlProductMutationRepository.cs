@@ -17,10 +17,18 @@ public sealed class SqlProductMutationRepository(
     SqlBranchProductReader branchProducts,
     IOrderStockPort stock) : IProductCatalogWriteRepository, IProductMediaRepository
 {
-    public async Task<ProductRecord?> FindEquivalentCodeAsync(string code, string? exclude, CancellationToken ct)
+    public Task<ProductRecord?> FindEquivalentCodeAsync(string code, string? exclude, CancellationToken ct) =>
+        FindEquivalentCodeAsync(code, exclude, null, ct);
+
+    public async Task<ProductRecord?> FindEquivalentCodeAsync(
+        string code,
+        string? exclude,
+        Guid? companyId,
+        CancellationToken ct)
     {
         await using SqlConnection connection = factory.Create();
         await connection.OpenAsync(ct);
+        if (companyId.HasValue) await EnsureCompanyAsync(connection, null, companyId.Value, ct);
         await using SqlCommand command = new("""
             SELECT PublicId FROM dbo.Products
             WHERE UPPER(REPLACE(REPLACE(Code,N' ',N''),N'-',N''))=@code
@@ -32,7 +40,13 @@ public sealed class SqlProductMutationRepository(
         return value is string id ? await reads.FindByIdAsync(id, true, ct) : null;
     }
 
-    public async Task<ProductMutationResult> CreateAsync(ProductMutation product, CancellationToken ct)
+    public Task<ProductMutationResult> CreateAsync(ProductMutation product, CancellationToken ct) =>
+        CreateAsync(product, null, ct);
+
+    public async Task<ProductMutationResult> CreateAsync(
+        ProductMutation product,
+        ProductCreationAssignment? assignment,
+        CancellationToken ct)
     {
         string id = SqlPublicIds.New();
         await using SqlConnection connection = factory.Create();
@@ -54,6 +68,10 @@ public sealed class SqlProductMutationRepository(
             }
             foreach ((ProductVariantMutation variant, int index) in (product.Variants ?? []).Select((value, index) => (value, index)))
                 await AddVariantAsync(connection, transaction, id, index, variant, ct);
+            if (assignment is not null)
+            {
+                await AddCreationAssignmentAsync(connection, transaction, id, assignment, ct);
+            }
             await transaction.CommitAsync(ct);
             return new(ProductMutationStatus.Success, await reads.FindByIdAsync(id, true, ct));
         }
@@ -393,6 +411,68 @@ public sealed class SqlProductMutationRepository(
         VariantMasterParams(command, id, index, variant);
         command.Parameters.AddWithValue("@variant", SqlPublicIds.New());
         await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task AddCreationAssignmentAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string productPublicId,
+        ProductCreationAssignment assignment,
+        CancellationToken ct)
+    {
+        await EnsureCompanyAsync(connection, transaction, assignment.CompanyId, ct);
+
+        if (!assignment.BranchId.HasValue) return;
+        Guid branchId = assignment.BranchId.Value;
+
+        await using (SqlCommand insert = new("""
+            INSERT dbo.ProductBranchAssignments
+                (ProductBranchAssignmentId,ProductId,BranchId,IsActive,AssignedAtUtc,AssignedByUserId)
+            SELECT NEWID(),ProductId,@branch,1,SYSUTCDATETIME(),@actor
+            FROM dbo.Products
+            WHERE PublicId=@product AND IsDeleted=0;
+            """, connection, transaction))
+        {
+            insert.Parameters.AddWithValue("@product", productPublicId);
+            insert.Parameters.AddWithValue("@branch", branchId);
+            insert.Parameters.AddWithValue("@actor", (object?)assignment.ActorUserId ?? DBNull.Value);
+            if (await insert.ExecuteNonQueryAsync(ct) != 1)
+                throw new InvalidOperationException("Cannot create the automatic Product Branch assignment.");
+        }
+
+        string details = JsonSerializer.Serialize(new
+        {
+            productIds = new[] { productPublicId },
+            branchIds = new[] { branchId },
+            changedCount = 1,
+            automatic = true,
+            source = "branch_product_create",
+        });
+        await using SqlCommand audit = new("""
+            INSERT dbo.ActivityLogs
+                (ActivityLogId,PublicId,Action,ActorName,DetailsJson,CreatedAtUtc,Version)
+            VALUES (NEWID(),@publicId,N'assign_product_branches',@actor,@details,SYSUTCDATETIME(),0);
+            """, connection, transaction);
+        audit.Parameters.AddWithValue("@publicId", SqlPublicIds.New());
+        audit.Parameters.AddWithValue("@actor", assignment.ActorName);
+        audit.Parameters.AddWithValue("@details", details);
+        await audit.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task EnsureCompanyAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        Guid expectedCompanyId,
+        CancellationToken ct)
+    {
+        await using SqlCommand command = new("""
+            SELECT CompanyId
+            FROM dbo.CompanyDatabaseInfo
+            WHERE SingletonKey=1 AND DatabaseKind=N'CompanyShared';
+            """, connection, transaction);
+        object? value = await command.ExecuteScalarAsync(ct);
+        if (value is not Guid companyId || companyId != expectedCompanyId)
+            throw new UnauthorizedAccessException("Company database assignment does not match the authenticated company scope.");
     }
 
     private async Task UpdateBranchVariantAsync(SqlBranchProductSnapshot product, ProductVariantMutation mutation, CancellationToken ct)

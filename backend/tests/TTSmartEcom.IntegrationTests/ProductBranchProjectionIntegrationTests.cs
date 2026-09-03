@@ -80,6 +80,10 @@ public sealed class ProductBranchProjectionIntegrationTests
             FixedCompanyFactory companyFactory = new(companyConnection);
             ProductPage companyCatalog = await Catalog(companyFactory, mainConnection).ListAsync(Query(null), CancellationToken.None);
             Assert.Equal(2, companyCatalog.Total);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                Catalog(companyFactory, mainConnection).ListAsync(
+                    Query(null) with { CompanyId = OtherCompanyId },
+                    CancellationToken.None));
             ProductPage mainCatalog = await Catalog(companyFactory, mainConnection).ListAsync(Query(MainBranchId), CancellationToken.None);
             Assert.Equal(2, mainCatalog.Total);
             Assert.Empty((await Catalog(companyFactory, hnConnection).ListAsync(Query(HnBranchId), CancellationToken.None)).Products);
@@ -119,11 +123,22 @@ public sealed class ProductBranchProjectionIntegrationTests
                 10_000, "Processing", false, "Processing", null, [], DateTimeOffset.UtcNow, null, 0), CancellationToken.None);
             await ExecuteAsync(companyConnection, $"UPDATE dbo.Products SET Name=N'Tên mới' WHERE PublicId=N'{ProductA}';");
             Assert.Equal("Sản phẩm A", await StringScalarAsync(hnConnection, "SELECT JSON_VALUE(DetailsJson,'$.productNameSnapshot') FROM dbo.SalesOrderItems;"));
+            SalesOrder loadedBeforeMetadataUpdate = (await orders.FindAsync(order.Id, CancellationToken.None))!;
+            SalesOrder? metadataUpdated = await orders.UpdateAsync(
+                loadedBeforeMetadataUpdate with { Payment = true },
+                loadedBeforeMetadataUpdate.Version,
+                CancellationToken.None);
+            Assert.NotNull(metadataUpdated);
+            Assert.Equal("Sản phẩm A", Assert.Single(metadataUpdated.CartItems).ProductNameSnapshot);
+            Assert.Equal("Sản phẩm A", await StringScalarAsync(hnConnection, "SELECT JSON_VALUE(DetailsJson,'$.productNameSnapshot') FROM dbo.SalesOrderItems;"));
 
             ProductBranchAssignmentChange revoked = await distribution.RevokeAsync([ProductA], [HnBranchId], actor, CancellationToken.None);
             Assert.Equal(1, revoked.ChangedCount);
             Assert.Equal(3, await ScalarAsync(hnConnection, "SELECT CONVERT(int,QuantityForSale) FROM dbo.BranchStockBalances;"));
             Assert.Equal(1, await ScalarAsync(hnConnection, "SELECT COUNT(*) FROM dbo.SalesOrders;"));
+            Assert.DoesNotContain((await Catalog(companyFactory, hnConnection).ListAsync(Query(HnBranchId), CancellationToken.None)).Products, product => product.Id == ProductA);
+            await ExecuteAsync(companyConnection, executableMigration);
+            Assert.False(await distribution.IsActiveAsync(ProductA, HnBranchId, actor, CancellationToken.None));
             Assert.DoesNotContain((await Catalog(companyFactory, hnConnection).ListAsync(Query(HnBranchId), CancellationToken.None)).Products, product => product.Id == ProductA);
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => orders.InsertAsync(new SalesOrder(
                 string.Empty, "SO-REVOKED", "0900000000", "Test", [new SalesOrderItem(ProductA, 0, 1)],
@@ -142,6 +157,53 @@ public sealed class ProductBranchProjectionIntegrationTests
                 distribution.AssignAsync([ProductA], [OtherBranchId], actor, CancellationToken.None));
             Assert.Equal(403, crossCompany.Error.HttpStatus);
             Assert.NotNull(await orders.FindAsync(order.Id, CancellationToken.None));
+
+            SqlProductCatalogRepository hnProductCatalog = Catalog(companyFactory, hnConnection);
+            SqlProductMutationRepository productMutations = new(
+                companyFactory,
+                hnFactory,
+                hnProductCatalog,
+                hnReader,
+                hnStock);
+            ProductMutationResult companyOnlyProduct = await productMutations.CreateAsync(
+                ProductMutationFor("Sản phẩm tạo tại Company", "COMPANY-ONLY"),
+                new ProductCreationAssignment(CompanyId, null, actor.UserId, "Admin"),
+                CancellationToken.None);
+            Assert.Equal(ProductMutationStatus.Success, companyOnlyProduct.Status);
+            string companyOnlyId = companyOnlyProduct.Product!.Id;
+            await distribution.AssignAsync([companyOnlyId], [HnBranchId], actor, CancellationToken.None);
+            ProductMutationResult newVariant = await productMutations.AddVariantAsync(
+                companyOnlyId,
+                VariantMutation("22000"),
+                CancellationToken.None);
+            Assert.Equal(ProductMutationStatus.Success, newVariant.Status);
+            ProductRecord assignedWithNewVariant = (await hnProductCatalog.FindByIdAsync(
+                companyOnlyId,
+                true,
+                CompanyId,
+                HnBranchId,
+                CancellationToken.None))!;
+            Assert.Equal(2, assignedWithNewVariant.Variants.Count);
+            Assert.All(assignedWithNewVariant.Variants, variant => Assert.Equal(0, variant.QuantityForSale));
+
+            ProductMutationResult branchCreatedProduct = await productMutations.CreateAsync(
+                ProductMutationFor("Sản phẩm tạo tại Branch", "BRANCH-CREATE"),
+                new ProductCreationAssignment(CompanyId, HnBranchId, actor.UserId, "Admin"),
+                CancellationToken.None);
+            Assert.Equal(ProductMutationStatus.Success, branchCreatedProduct.Status);
+            Assert.True(await distribution.IsActiveAsync(
+                branchCreatedProduct.Product!.Id,
+                HnBranchId,
+                actor,
+                CancellationToken.None));
+
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => productMutations.CreateAsync(
+                ProductMutationFor("Không được tạo", "WRONG-COMPANY"),
+                new ProductCreationAssignment(OtherCompanyId, null, actor.UserId, "Admin"),
+                CancellationToken.None));
+            Assert.Equal(0, await ScalarAsync(
+                companyConnection,
+                "SELECT COUNT(*) FROM dbo.Products WHERE Code=N'WRONG-COMPANY';"));
         }
         finally
         {
@@ -157,7 +219,9 @@ public sealed class ProductBranchProjectionIntegrationTests
     }
 
     private static ProductListQuery Query(Guid? branchId) => new(
-        1, 100, null, null, null, null, null, null, "name", "asc", null, true, BranchId: branchId);
+        1, 100, null, null, null, null, null, null, "name", "asc", null, true,
+        BranchId: branchId,
+        CompanyId: CompanyId);
 
     private static CurrentUserContext CompanyAdmin()
     {
@@ -166,6 +230,41 @@ public sealed class ProductBranchProjectionIntegrationTests
         return new CurrentUserContext(Guid.NewGuid(), true, false, "Admin", "admin@example.test", null,
             [membership], CompanyId, [], null, ["company_admin"], permissions, true, false);
     }
+
+    private static ProductMutation ProductMutationFor(string name, string code) => new(
+        "Chưa phân loại",
+        name,
+        code,
+        "Chưa rõ",
+        "Chưa phân loại",
+        "Chưa rõ",
+        null,
+        null,
+        false,
+        true,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        [],
+        [VariantMutation("11000")]);
+
+    private static ProductVariantMutation VariantMutation(string price) => new(
+        null,
+        price,
+        null,
+        25,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0,
+        0,
+        null);
 
     private static async Task SeedControlAsync(string connection) => await ExecuteAsync(connection, $"""
         INSERT dbo.Companies VALUES('{CompanyId}',N'TTSmart',N'TTSMART',1,0),('{OtherCompanyId}',N'OTHER',N'OTHER',1,0);
@@ -230,7 +329,7 @@ public sealed class ProductBranchProjectionIntegrationTests
         CREATE TABLE dbo.SchemaVersions(SchemaVersionId uniqueidentifier NOT NULL PRIMARY KEY,MigrationNumber int NOT NULL UNIQUE,MigrationName nvarchar(300) NOT NULL,ScriptChecksum char(64) NULL);
         CREATE TABLE dbo.CompanyDatabaseInfo(CompanyDatabaseInfoId uniqueidentifier NOT NULL PRIMARY KEY,SingletonKey tinyint NOT NULL UNIQUE,CompanyId uniqueidentifier NOT NULL,CompanyCode nvarchar(64) NOT NULL,DatabaseKind nvarchar(40) NOT NULL);
         INSERT dbo.CompanyDatabaseInfo VALUES(NEWID(),1,'11111111-1111-1111-1111-111111111111',N'TTSmart',N'CompanyShared');
-        CREATE TABLE dbo.Products(ProductId uniqueidentifier NOT NULL PRIMARY KEY,PublicId char(24) NOT NULL UNIQUE,TypeName nvarchar(300) NULL,Name nvarchar(500) NULL,NameUnsigned nvarchar(500) NULL,Display bit NULL,Code nvarchar(200) NULL,VatRaw nvarchar(200) NULL,Adjusted bit NULL,BrandName nvarchar(300) NULL,CategoryName nvarchar(300) NULL,CategoryValue nvarchar(500) NULL,Description nvarchar(max) NULL,DetailsJson nvarchar(max) NULL,DocumentsJson nvarchar(max) NULL,PurchaseCount bigint NOT NULL,SourceCreatedAtUtc datetime2(7) NULL,SourceUpdatedAtUtc datetime2(7) NULL,Version bigint NOT NULL,IsDeleted bit NOT NULL);
+        CREATE TABLE dbo.Products(ProductId uniqueidentifier NOT NULL PRIMARY KEY,PublicId char(24) NOT NULL UNIQUE,TypeName nvarchar(300) NULL,Name nvarchar(500) NULL,NameUnsigned nvarchar(500) NULL,Display bit NULL,Code nvarchar(200) NULL,VatRaw nvarchar(200) NULL,Adjusted bit NULL,BrandName nvarchar(300) NULL,CategoryName nvarchar(300) NULL,CategoryValue nvarchar(500) NULL,Description nvarchar(max) NULL,DetailsJson nvarchar(max) NULL,DocumentsJson nvarchar(max) NULL,PurchaseCount bigint NOT NULL DEFAULT 0,SourceCreatedAtUtc datetime2(7) NULL,SourceUpdatedAtUtc datetime2(7) NULL,Version bigint NOT NULL,IsDeleted bit NOT NULL DEFAULT 0);
         CREATE TABLE dbo.ProductVariants(ProductVariantId uniqueidentifier NOT NULL PRIMARY KEY,PublicId char(24) NOT NULL UNIQUE,ProductId uniqueidentifier NOT NULL,SortOrder int NOT NULL,Name nvarchar(500) NULL,Price decimal(19,4) NULL,PriceRaw nvarchar(200) NULL,ImportPrice decimal(19,4) NULL,ImportPriceRaw nvarchar(200) NULL,QuantityForSale decimal(19,6) NULL,QuantityInStorage decimal(19,6) NULL,DetailsJson nvarchar(max) NULL,Version bigint NOT NULL,CONSTRAINT FK_Test_ProductVariants_Products FOREIGN KEY(ProductId) REFERENCES dbo.Products(ProductId));
         CREATE TABLE dbo.ProductTypes(ProductTypeId uniqueidentifier NOT NULL PRIMARY KEY,PublicId char(24) NOT NULL UNIQUE,Name nvarchar(300) NULL,Icon nvarchar(300) NULL);
         CREATE TABLE dbo.ActivityLogs(ActivityLogId uniqueidentifier NOT NULL PRIMARY KEY,PublicId char(24) NOT NULL UNIQUE,Action nvarchar(200) NOT NULL,ActorName nvarchar(200) NULL,DetailsJson nvarchar(max) NULL,CreatedAtUtc datetime2(7) NULL,Version bigint NOT NULL);
