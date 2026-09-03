@@ -9,7 +9,9 @@ const WorkspaceGate = ({ children }) => {
     return <Box sx={{ display: "grid", placeItems: "center", height: "100vh" }}><CircularProgress /></Box>;
   }
 
-  const requiresSelection = profile?.isControlPlaneIdentity && profile?.requiresWorkspaceSelection;
+  const requiresSelection = profile?.isControlPlaneIdentity
+    && profile?.requiresWorkspaceSelection
+    && !profile?.isPlatformSuperAdmin;
   if (requiresSelection) {
     return <WorkspaceSelector profile={profile} open required onClose={() => {}} />;
   }

@@ -30,8 +30,20 @@ import ZaloSettings from './components/ZaloSettings';
 import TelegramSettings from './components/TelegramSettings';
 import VoiceVocab from './components/voicevocab';
 import VoiceSearchFAB from './components/VoiceSearchFAB';
-import { PermissionProvider } from './context/permissioncontext';
+import { PermissionProvider, usePermissions } from './context/permissioncontext';
 import WorkspaceGate from './components/workspaceGate';
+import SystemWorkspace from './components/systemworkspace';
+import SystemWorkspaceGuard from './components/systemworkspaceguard';
+
+const WorkspaceHomeRedirect = () => {
+  const { profile, scope } = usePermissions();
+  return <Navigate to={profile?.isPlatformSuperAdmin && !scope.companyId ? "/system" : "/product"} replace />;
+};
+
+const WorkspaceVoiceSearch = () => {
+  const { profile, scope } = usePermissions();
+  return profile?.isPlatformSuperAdmin && !scope.companyId ? null : <VoiceSearchFAB />;
+};
 
 const App = () => {
   return (
@@ -48,7 +60,17 @@ const App = () => {
                     <Sidebar />
                     <Box component="main" className="admin-content-wrapper" sx={{ flex: 1, height: "100%", overflowY: "auto", p: { xs: 1.5, sm: 2 }, pt: { xs: '68px', md: 2 }, minWidth: 0 }}>
                     <Routes>
-                      <Route index element={<Navigate to="/product" replace />} />
+                      <Route index element={<WorkspaceHomeRedirect />} />
+                      <Route path="/system" element={<SystemWorkspaceGuard><SystemWorkspace section="overview" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/organizations" element={<SystemWorkspaceGuard><SystemWorkspace section="organizations" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/users" element={<SystemWorkspaceGuard><SystemWorkspace section="users" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/permissions" element={<SystemWorkspaceGuard><SystemWorkspace section="permissions" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/applications" element={<SystemWorkspaceGuard><SystemWorkspace section="applications" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/approvals" element={<SystemWorkspaceGuard><SystemWorkspace section="approvals" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/logs" element={<SystemWorkspaceGuard><SystemWorkspace section="logs" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/health" element={<SystemWorkspaceGuard><SystemWorkspace section="health" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/settings" element={<SystemWorkspaceGuard><SystemWorkspace section="settings" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/reports" element={<SystemWorkspaceGuard><SystemWorkspace section="reports" /></SystemWorkspaceGuard>} />
                       <Route path="/account" element={<RoleGuard adminOnly><Account /></RoleGuard>} />
                       <Route path="/product" element={<RoleGuard requiredPermission="product.view"><Products /></RoleGuard>} />
                       <Route path="/chip" element={<RoleGuard requiredPermission="product.view"><Chips /></RoleGuard>} />
@@ -77,10 +99,10 @@ const App = () => {
                       <Route path="/zalo" element={<RoleGuard adminOnly><ZaloSettings /></RoleGuard>} />
                       <Route path="/telegram" element={<RoleGuard adminOnly><TelegramSettings /></RoleGuard>} />
                       <Route path="/voice-vocab" element={<RoleGuard requiredPermission="voice.manage"><VoiceVocab /></RoleGuard>} />
-                      <Route path="*" element={<Navigate to="/product" replace />} />
+                      <Route path="*" element={<WorkspaceHomeRedirect />} />
                     </Routes>
                     </Box>
-                    <VoiceSearchFAB />
+                    <WorkspaceVoiceSearch />
                   </Box>
                 </WorkspaceGate>
               </ProtectedRoute>

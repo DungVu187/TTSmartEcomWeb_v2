@@ -16,9 +16,11 @@ import ArrowBack from "@mui/icons-material/ArrowBack";
 import toast from "react-hot-toast";
 import logo from "../assets/logo.png";
 import { getAuthFailure } from "../api/httpClient";
+import { getPostLoginDestination } from "./workspaceRouting";
 import {
   loginAdmin,
   clearAdminSessionScope,
+  getAdminProfile,
   requestAdminPasswordReset,
   resetAdminPassword,
 } from "../api/adminAuthApi";
@@ -85,9 +87,19 @@ export default function SignInPage() {
       const data = await response.json();
 
       if (response.ok) {
+        let landingUrl = dashboardUrl;
+        try {
+          const profileResponse = await getAdminProfile();
+          if (profileResponse.ok) {
+            const profile = await profileResponse.json();
+            landingUrl = getPostLoginDestination(profile, dashboardUrl);
+          }
+        } catch {
+          // Giữ route dashboard tương thích nếu projection profile tạm thời không khả dụng.
+        }
         toast.success("Đăng nhập thành công!");
         setTimeout(() => {
-          window.location.href = `${dashboardUrl}`;
+          window.location.href = landingUrl;
         }, 1000);
       } else {
         const authFailure = getAuthFailure(response);

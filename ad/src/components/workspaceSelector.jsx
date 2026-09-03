@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Button,
@@ -43,6 +44,7 @@ const StepTitle = ({ number, children }) => (
 );
 
 const WorkspaceSelector = ({ profile, open, required = false, onClose }) => {
+  const navigate = useNavigate();
   const companies = useMemo(
     () => (Array.isArray(profile?.companyMemberships) ? profile.companyMemberships : []),
     [profile?.companyMemberships],
@@ -58,7 +60,7 @@ const WorkspaceSelector = ({ profile, open, required = false, onClose }) => {
 
   useEffect(() => {
     if (!open) return;
-    setCompanyId(profile?.activeCompanyId || (companies.length === 1 ? companies[0].companyId : ""));
+    setCompanyId(profile?.activeCompanyId || "");
     setBranchId(profile?.activeBranchId || "");
     setSearch("");
     setWorkspaceType(profile?.isPlatformSuperAdmin && !profile?.activeCompanyId ? "platform" : "company");
@@ -78,25 +80,30 @@ const WorkspaceSelector = ({ profile, open, required = false, onClose }) => {
   const chooseCompany = (id) => {
     setWorkspaceType("company");
     setCompanyId(id);
-    const nextBranches = branches.filter((branch) => branch.companyId === id);
-    setBranchId(nextBranches.length === 1 ? nextBranches[0].branchId : "");
+    setBranchId("");
   };
 
   const confirm = () => {
+    if (workspaceType === "platform") {
+      setAdminScope({ companyId: "", branchId: "" });
+      onClose?.();
+      navigate("/system");
+      return;
+    }
+
     setAdminScope({ companyId, branchId });
     onClose?.();
+    navigate("/product");
   };
 
   const choosePlatform = () => {
     setWorkspaceType("platform");
     setCompanyId("");
     setBranchId("");
-    setAdminScope({ companyId: "", branchId: "" });
   };
 
   const chooseCompanyWorkspace = () => {
     setWorkspaceType("company");
-    if (!companyId && companies.length === 1) chooseCompany(companies[0].companyId);
   };
 
   return (
@@ -196,8 +203,8 @@ const WorkspaceSelector = ({ profile, open, required = false, onClose }) => {
         </Typography>
         <Stack direction="row" spacing={1}>
           {!required && <Button onClick={onClose} color="inherit">Hủy</Button>}
-          <Button variant="contained" onClick={confirm} disabled={!profile?.isPlatformSuperAdmin && !companyId}>
-            Truy cập {branchId ? "chi nhánh" : "công ty"}
+          <Button variant="contained" onClick={confirm} disabled={workspaceType === "company" && !companyId}>
+            {workspaceType === "platform" ? "Truy cập hệ thống" : `Truy cập ${branchId ? "chi nhánh" : "công ty"}`}
           </Button>
         </Stack>
       </DialogActions>

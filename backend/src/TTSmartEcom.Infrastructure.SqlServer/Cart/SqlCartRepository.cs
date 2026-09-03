@@ -5,7 +5,7 @@ using TTSmartEcom.Domain.Cart;
 
 namespace TTSmartEcom.Infrastructure.SqlServer.Cart;
 
-public sealed class SqlCartRepository(ISqlConnectionFactory factory) : ICartRepository, ICartProductCatalog
+public sealed class SqlCartRepository(IOperationalDbConnectionFactory factory, ICompanyDbConnectionFactory companyFactory) : ICartRepository, ICartProductCatalog
 {
     public async Task<CartOwner?> FindOwnerAsync(string userId, CancellationToken cancellationToken)
     {
@@ -39,7 +39,7 @@ public sealed class SqlCartRepository(ISqlConnectionFactory factory) : ICartRepo
 
     public async Task<ProductVariantSnapshot?> FindVariantAsync(string productId,int variantIndex,CartOwner viewer,CancellationToken cancellationToken)
     {
-        if(variantIndex<0)return null;await using SqlConnection c=factory.Create();await c.OpenAsync(cancellationToken);await using SqlCommand q=new("SELECT p.Name,p.BrandName,p.Code,p.Display,v.PriceRaw,v.QuantityForSale,v.QuantityInStorage,v.DetailsJson FROM dbo.Products p JOIN dbo.ProductVariants v ON v.ProductId=p.ProductId WHERE p.PublicId=@id AND p.IsDeleted=0 AND v.SortOrder=@index;",c);q.Parameters.AddWithValue("@id",productId);q.Parameters.AddWithValue("@index",variantIndex);await using SqlDataReader r=await q.ExecuteReaderAsync(cancellationToken);if(!await r.ReadAsync(cancellationToken)||viewer.Role=="customer"&&(!r.IsDBNull(3)&&!r.GetBoolean(3)))return null;using JsonDocument details=JsonDocument.Parse(r.IsDBNull(7)?"{}":r.GetString(7));JsonElement root=details.RootElement;return new ProductVariantSnapshot(productId,variantIndex,r.IsDBNull(0)?null:r.GetString(0),r.IsDBNull(1)?null:r.GetString(1),r.IsDBNull(2)?null:r.GetString(2),r.IsDBNull(4)?null:r.GetString(4),GetString(root,"imgUrl"),r.IsDBNull(5)?0:(double)r.GetDecimal(5),r.IsDBNull(6)?0:(double)r.GetDecimal(6),GetDouble(root,"earn",25),!r.IsDBNull(3)&&r.GetBoolean(3));
+        if(variantIndex<0)return null;await using SqlConnection c=companyFactory.Create();await c.OpenAsync(cancellationToken);await using SqlCommand q=new("SELECT p.Name,p.BrandName,p.Code,p.Display,v.PriceRaw,v.QuantityForSale,v.QuantityInStorage,v.DetailsJson FROM dbo.Products p JOIN dbo.ProductVariants v ON v.ProductId=p.ProductId WHERE p.PublicId=@id AND p.IsDeleted=0 AND v.SortOrder=@index;",c);q.Parameters.AddWithValue("@id",productId);q.Parameters.AddWithValue("@index",variantIndex);await using SqlDataReader r=await q.ExecuteReaderAsync(cancellationToken);if(!await r.ReadAsync(cancellationToken)||viewer.Role=="customer"&&(!r.IsDBNull(3)&&!r.GetBoolean(3)))return null;using JsonDocument details=JsonDocument.Parse(r.IsDBNull(7)?"{}":r.GetString(7));JsonElement root=details.RootElement;return new ProductVariantSnapshot(productId,variantIndex,r.IsDBNull(0)?null:r.GetString(0),r.IsDBNull(1)?null:r.GetString(1),r.IsDBNull(2)?null:r.GetString(2),r.IsDBNull(4)?null:r.GetString(4),GetString(root,"imgUrl"),r.IsDBNull(5)?0:(double)r.GetDecimal(5),r.IsDBNull(6)?0:(double)r.GetDecimal(6),GetDouble(root,"earn",25),!r.IsDBNull(3)&&r.GetBoolean(3));
     }
 
     public async Task<IReadOnlySet<string>?> GetVisibleProductIdsAsync(CartOwner viewer,CancellationToken cancellationToken)

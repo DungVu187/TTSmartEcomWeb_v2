@@ -23,6 +23,11 @@ public sealed class SqlServerOptions
     public string? OperationalConnectionString { get; init; }
 
     /// <summary>
+    /// Explicit connection string for Company Shared DB (e.g. [TTSmart]).
+    /// </summary>
+    public string? CompanyConnectionString { get; init; }
+
+    /// <summary>
     /// Explicit connection string for Control Plane DB (e.g. [ttsmart.com.vn]).
     /// </summary>
     public string? ControlConnectionString { get; init; }
@@ -56,6 +61,16 @@ public sealed class SqlServerOptions
         };
         return builder.ConnectionString;
     }
+
+    public string GetCompanyConnectionString()
+    {
+        if (!string.IsNullOrWhiteSpace(CompanyConnectionString))
+        {
+            return CompanyConnectionString;
+        }
+
+        return ConnectionString;
+    }
 }
 
 public static class DependencyInjection
@@ -85,6 +100,23 @@ public static class DependencyInjection
                     return false;
                 }
 
+                string companyConn = options.GetCompanyConnectionString();
+                if (string.IsNullOrWhiteSpace(companyConn))
+                {
+                    return false;
+                }
+
+                var companyBuilder = new SqlConnectionStringBuilder(companyConn);
+                string companyCatalog = companyBuilder.InitialCatalog;
+                bool isCompanyValid = companyCatalog.Equals("TTSmart", StringComparison.OrdinalIgnoreCase)
+                    || companyCatalog.Equals("TTSmart_Company_V1_Test", StringComparison.OrdinalIgnoreCase)
+                    || companyCatalog.StartsWith("TTSmartEcomV2", StringComparison.OrdinalIgnoreCase);
+
+                if (!isCompanyValid)
+                {
+                    return false;
+                }
+
                 string ctrlConn = options.GetControlConnectionString();
                 if (string.IsNullOrWhiteSpace(ctrlConn))
                 {
@@ -98,10 +130,11 @@ public static class DependencyInjection
                     || ctrlCatalog.StartsWith("TTSmartEcomV2ControlPlaneIntegration_", StringComparison.OrdinalIgnoreCase);
 
                 return isCtrlValid;
-            }, "SqlServer configuration must define valid connection strings for Operational DB and Control Plane DB.")
+            }, "SqlServer configuration must define valid connection strings for Company, Operational, and Control Plane databases.")
             .ValidateOnStart();
 
         services.AddSingleton<IControlDbConnectionFactory, ControlDbConnectionFactory>();
+        services.AddSingleton<ICompanyDbConnectionFactory, CompanyDbConnectionFactory>();
         services.AddSingleton<IOperationalDbConnectionFactory, OperationalDbConnectionFactory>();
         services.AddSingleton<ISqlConnectionFactory, DefaultSqlConnectionFactory>();
 

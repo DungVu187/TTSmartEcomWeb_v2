@@ -21,7 +21,16 @@ import {
   Menu as MenuIcon,
 } from "@mui/icons-material";
 import {
+  AppsOutlined,
+  AssessmentOutlined,
+  BusinessOutlined,
+  DashboardOutlined,
+  FactCheckOutlined,
+  HealthAndSafetyOutlined,
   Inventory as ProductIcon,
+  ManageAccountsOutlined,
+  ReceiptLongOutlined,
+  SettingsOutlined,
   ShoppingCart as OrderIcon,
   ListAlt as OrderListIcon,
   Sell as SoldIcon,
@@ -79,8 +88,11 @@ const Sidebar = () => {
 
   const userName = profile?.name || "";
   const userPhone = profile?.phone || "";
+  const isSystemWorkspace = Boolean(
+    profile?.isPlatformSuperAdmin && currentPath.startsWith("/system"),
+  );
 
-  const canViewOrders = can("order.view");
+  const canViewOrders = !isSystemWorkspace && can("order.view");
   const activeCompany = profile?.companyMemberships?.find((company) => company.companyId === scope.companyId);
   const activeBranch = profile?.branchMemberships?.find((branch) => branch.branchId === scope.branchId);
 
@@ -180,7 +192,7 @@ const Sidebar = () => {
     can("customer.view") && { text: "Khách hàng", path: "/stationuser", icon: <PersonIcon /> },
   ].filter(Boolean);
 
-  const menuItems = [
+  const operationalMenuItems = [
     can("product.view") && { text: "Sản phẩm", path: "/product", icon: <ProductIcon /> },
     canViewOrders && {
       text: "Đơn bán hàng",
@@ -306,8 +318,25 @@ const Sidebar = () => {
     { text: "Đăng xuất", icon: <LogoutIcon />, action: "logout" },
   ].filter(Boolean);
 
+  const systemMenuItems = [
+    { text: "Tổng quan hệ thống", path: "/system", icon: <DashboardOutlined /> },
+    { text: "Công ty & Chi nhánh", path: "/system/organizations", icon: <BusinessOutlined /> },
+    { text: "Người dùng & Vai trò", path: "/system/users", icon: <ManageAccountsOutlined /> },
+    { text: "Nhóm quyền", path: "/system/permissions", icon: <PolicyOutlinedIcon /> },
+    { text: "Ứng dụng & Dịch vụ", path: "/system/applications", icon: <AppsOutlined /> },
+    { text: "Yêu cầu phê duyệt", path: "/system/approvals", icon: <FactCheckOutlined /> },
+    { text: "Nhật ký hệ thống", path: "/system/logs", icon: <ReceiptLongOutlined /> },
+    { text: "Giám sát & Sức khỏe", path: "/system/health", icon: <HealthAndSafetyOutlined /> },
+    { text: "Cấu hình hệ thống", path: "/system/settings", icon: <SettingsOutlined /> },
+    { text: "Báo cáo", path: "/system/reports", icon: <AssessmentOutlined /> },
+    { text: "Đăng xuất", icon: <LogoutIcon />, action: "logout" },
+  ];
+
+  const menuItems = isSystemWorkspace ? systemMenuItems : operationalMenuItems;
+
   const isPathActive = (path) => {
     if (!path) return false;
+    if (path === "/system") return currentPath === path;
     return currentPath === path || currentPath.startsWith(`${path}/`);
   };
 
@@ -374,7 +403,7 @@ const Sidebar = () => {
             }}
           >
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {profile?.isPlatformSuperAdmin && !scope.companyId
+              {isSystemWorkspace
                 ? "Quản trị hệ thống"
                 : activeBranch?.name || activeCompany?.name || "Chọn không gian"}
             </span>

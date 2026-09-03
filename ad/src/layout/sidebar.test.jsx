@@ -37,6 +37,7 @@ const mockPermissions = vi.hoisted(() => ({
   isAdminOrSuperadmin: false,
   can: vi.fn().mockReturnValue(false),
   isLoading: false,
+  scope: { companyId: '', branchId: '' },
 }));
 
 vi.mock('../context/permissioncontext', () => ({
@@ -53,6 +54,8 @@ describe('Sidebar', () => {
     mockPermissions.isAdminOrSuperadmin = false;
     mockPermissions.can = vi.fn().mockReturnValue(false);
     mockPermissions.isLoading = false;
+    mockPermissions.scope = { companyId: '', branchId: '' };
+    window.history.pushState({}, '', '/admin/product');
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, count: 0 }),
@@ -217,5 +220,29 @@ describe('Sidebar', () => {
     render(<Sidebar />);
 
     expect(screen.queryByText('Khách - Trạm')).not.toBeInTheDocument();
+  });
+
+  it('shows the dedicated system navigation for Platform SuperAdmin', () => {
+    window.history.pushState({}, '', '/admin/system');
+    mockPermissions.profile = {
+      name: 'Super Admin',
+      role: 'superadmin',
+      isControlPlaneIdentity: true,
+      isPlatformSuperAdmin: true,
+      companyMemberships: [],
+      branchMemberships: [],
+    };
+    mockPermissions.isAdminOrSuperadmin = true;
+    mockPermissions.can = vi.fn().mockReturnValue(true);
+
+    render(<Sidebar />);
+
+    expect(screen.getByText('Tổng quan hệ thống')).toBeInTheDocument();
+    expect(screen.getByText('Công ty & Chi nhánh')).toBeInTheDocument();
+    expect(screen.getByText('Ứng dụng & Dịch vụ')).toBeInTheDocument();
+    expect(screen.getByText('Giám sát & Sức khỏe')).toBeInTheDocument();
+    expect(screen.queryByText('Sản phẩm')).not.toBeInTheDocument();
+    expect(screen.queryByText('Đơn bán hàng')).not.toBeInTheDocument();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

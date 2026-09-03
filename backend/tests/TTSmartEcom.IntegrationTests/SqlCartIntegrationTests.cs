@@ -37,7 +37,8 @@ public sealed class SqlCartIntegrationTests
                 SELECT NEWID(),N'507f191e810c19729de860ec',ProductId,0,N'10000',10,20,NULL FROM dbo.Products WHERE PublicId=N'{ProductId}';
                 """);
 
-            var repository = new SqlCartRepository(new TestConnectionFactory(test.ConnectionString));
+            var factory = new TestConnectionFactory(test.ConnectionString);
+            var repository = new SqlCartRepository(factory, factory);
             var service = new CartService(repository, repository);
             IReadOnlyList<CartItem> added = await service.AddAsync(UserId, new CartChange(ProductId, 0, 2), CancellationToken.None);
             Assert.Single(added);
@@ -100,7 +101,7 @@ public sealed class SqlCartIntegrationTests
         await command.ExecuteNonQueryAsync();
     }
 
-    private sealed class TestConnectionFactory(string connectionString) : ISqlConnectionFactory
+    private sealed class TestConnectionFactory(string connectionString) : ISqlConnectionFactory, IOperationalDbConnectionFactory, ICompanyDbConnectionFactory
     {
         public SqlConnection Create() => new(new SqlConnectionStringBuilder(connectionString)
         {
