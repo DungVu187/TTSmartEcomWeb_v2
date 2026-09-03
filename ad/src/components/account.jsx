@@ -28,11 +28,13 @@ import TocIcon from "@mui/icons-material/Toc";
 import RecordVoiceOverIcon from "@mui/icons-material/RecordVoiceOver";
 import {
   deleteAccountUser,
+  getCompanyAccounts,
   getAccountPermissionCatalog,
   getAccountUsers,
   saveAccountUser,
 } from "../api/accountApi";
 import { usePermissions } from "../context/permissioncontext";
+import CompanyAccessScopeDialog from "./CompanyAccessScopeDialog";
 import "./style/account.css";
 
 const PERMISSION_COLUMNS = [
@@ -78,6 +80,7 @@ const Account = () => {
     profile: currentUser,
     isAdmin,
     isSuperadmin,
+    can,
     refreshProfile,
   } = usePermissions();
 
@@ -87,6 +90,7 @@ const Account = () => {
   const [role, setRole] = useState("");
   const [permissions, setPermissions] = useState([]);
   const [error, setError] = useState(null);
+  const [scopeUser, setScopeUser] = useState(null);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -99,6 +103,9 @@ const Account = () => {
   const [catalogError, setCatalogError] = useState("");
 
   const currentRole = currentUser?.role || (isSuperadmin ? "superadmin" : isAdmin ? "admin" : "");
+  const isControlPlaneMode = currentUser?.isControlPlaneIdentity === true;
+  const activeCompanyId = currentUser?.activeCompanyId || "";
+  const canManageCompanyScope = isSuperadmin || can("account.manage");
 
   const availableRoles = isSuperadmin
     ? [
@@ -128,8 +135,27 @@ const Account = () => {
 
   const fetchData = useCallback(async () => {
     try {
+      const usersRequest = isControlPlaneMode
+        ? activeCompanyId
+          ? getCompanyAccounts(activeCompanyId).then((result) =>
+              (result.accounts || []).map((account) => ({
+                _id: account.userId,
+                userId: account.userId,
+                name: account.displayName,
+                displayName: account.displayName,
+                phone: account.phone || "",
+                email: account.email || "",
+                role: "staff",
+                companyRoleLabel: account.roles?.map((item) => item.name).join(", ") || "Chưa có role",
+                permissions: [...new Set((account.roles || []).flatMap((item) => item.permissions || []))],
+                companyMembership: account,
+                isControlPlaneIdentity: true,
+              })),
+            )
+          : Promise.resolve([])
+        : getAccountUsers();
       const [usersData, catalogData] = await Promise.all([
-        getAccountUsers(),
+        usersRequest,
         getAccountPermissionCatalog(),
       ]);
 
@@ -152,7 +178,7 @@ const Account = () => {
     } finally {
       setCatalogLoading(false);
     }
-  }, [currentRole]);
+  }, [activeCompanyId, currentRole, isControlPlaneMode]);
 
   useEffect(() => {
     fetchData();
@@ -334,6 +360,9 @@ const Account = () => {
       flex: 0.8,
       minWidth: 110,
       renderCell: (params) => {
+        if (params.row.isControlPlaneIdentity) {
+          return <Chip label={params.row.companyRoleLabel} color="primary" variant="outlined" size="small" />;
+        }
         const r = params.value;
         if (r === "superadmin") {
           return (
@@ -356,6 +385,17 @@ const Account = () => {
         }
         return <Chip label={r} size="small" />;
       },
+    },
+    {
+      field: "companyScope",
+      headerName: "Phạm vi truy cập",
+      flex: 1.2,
+      minWidth: 180,
+      sortable: false,
+      filterable: false,
+      renderCell: (params) => params.row.companyMembership
+        ? <Chip size="small" label={params.row.companyRoleLabel || "Đã cấp Company"} variant="outlined" />
+        : <Typography variant="body2" color="text.secondary">Chưa cấp Company</Typography>,
     },
     {
       field: "permSummary",
@@ -389,20 +429,32 @@ const Account = () => {
       filterable: false,
       renderCell: (params) => {
         const targetRole = params.row.role;
+        const isControlPlaneTarget = params.row.isControlPlaneIdentity === true;
         const disableEdit =
           (isAdmin && (targetRole === "superadmin" || targetRole === "admin")) ||
           (!isSuperadmin && !isAdmin);
-        const canDelete = isSuperadmin && (targetRole === "admin" || targetRole === "staff");
+        const canDelete = !isControlPlaneTarget && isSuperadmin && (targetRole === "admin" || targetRole === "staff");
         return (
           <Box sx={{ display: "flex", gap: 1, alignItems: "center", height: "100%" }}>
-            <Button
-              variant="outlined"
-              size="small"
-              disabled={disableEdit}
-              onClick={() => handleEdit(params.row)}
-            >
-              Chỉnh sửa
-            </Button>
+            {!isControlPlaneTarget && (
+              <Button
+                variant="outlined"
+                size="small"
+                disabled={disableEdit}
+                onClick={() => handleEdit(params.row)}
+              >
+                Chỉnh sửa
+              </Button>
+            )}
+            {canManageCompanyScope && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => setScopeUser(params.row)}
+              >
+                Phạm vi truy cập
+              </Button>
+            )}
             {canDelete && (
               <Button
                 variant="outlined"
@@ -607,14 +659,25 @@ const Account = () => {
         <Typography variant="h4" gutterBottom sx={{ mb: 0 }}>
           Quản lý phân quyền
         </Typography>
-        <Button
-          variant="contained"
-          color="success"
-          startIcon={<AddIcon />}
-          onClick={handleOpenAdd}
-        >
-          Thêm tài khoản
-        </Button>
+        {!isControlPlaneMode && (
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={<AddIcon />}
+            onClick={handleOpenAdd}
+          >
+            Thêm tài khoản
+          </Button>
+        )}
+        {canManageCompanyScope && (
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={() => setScopeUser({})}
+          >
+            Gán phạm vi Company
+          </Button>
+        )}
       </div>
 
       <Box
@@ -718,6 +781,19 @@ const Account = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CompanyAccessScopeDialog
+        open={Boolean(scopeUser)}
+        user={scopeUser}
+        profile={currentUser}
+        onClose={() => setScopeUser(null)}
+        onChanged={async () => {
+          await fetchData();
+          if (scopeUser && currentUser?._id === (scopeUser.userId || scopeUser._id)) {
+            await refreshProfile();
+          }
+        }}
+      />
 
       <Snackbar
         open={!!error}

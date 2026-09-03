@@ -11,6 +11,7 @@ namespace TTSmartEcom.ContractTests;
 public sealed class ProductBranchDistributionContractTests
 {
     [Theory]
+    [InlineData(nameof(ProductBranchDistributionController.ListActiveBranches), "GET", "branches")]
     [InlineData(nameof(ProductBranchDistributionController.List), "GET", "{productId}/branches")]
     [InlineData(nameof(ProductBranchDistributionController.IsActive), "GET", "{productId}/branches/{branchId:guid}")]
     [InlineData(nameof(ProductBranchDistributionController.Assign), "POST", "assign")]

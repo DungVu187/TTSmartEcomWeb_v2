@@ -74,6 +74,38 @@ public sealed class ProductBranchDistributionServiceTests
     }
 
     [Fact]
+    public async Task AssignAsync_BranchOnlyProductEditCannotDistributeAtCompanyScope()
+    {
+        FakeAssignments assignments = new();
+        ProductBranchDistributionService service = new(
+            assignments,
+            new FakeBranches(new BranchCompanyReference(BranchId, CompanyId, "HN", true)),
+            new AccessScopeService());
+
+        TtsApplicationException error = await Assert.ThrowsAsync<TtsApplicationException>(() =>
+            service.AssignAsync([ProductId], [BranchId], BranchEditor(companyProductEdit: false), CancellationToken.None));
+
+        Assert.Equal(403, error.Error.HttpStatus);
+        Assert.Equal(0, assignments.CallCount);
+    }
+
+    [Fact]
+    public async Task AssignAsync_CompanyProductEditCanDistributeWhileBranchIsActive()
+    {
+        FakeAssignments assignments = new() { ChangedCount = 1 };
+        ProductBranchDistributionService service = new(
+            assignments,
+            new FakeBranches(new BranchCompanyReference(BranchId, CompanyId, "HN", true)),
+            new AccessScopeService());
+
+        ProductBranchAssignmentChange result = await service.AssignAsync(
+            [ProductId], [BranchId], BranchEditor(companyProductEdit: true), CancellationToken.None);
+
+        Assert.Equal(1, result.ChangedCount);
+        Assert.Equal(1, assignments.CallCount);
+    }
+
+    [Fact]
     public async Task ResolveCreationAssignmentAsync_UsesTrustedActiveBranch()
     {
         FakeBranches branches = new(new BranchCompanyReference(BranchId, CompanyId, "HN", true));
@@ -129,8 +161,32 @@ public sealed class ProductBranchDistributionServiceTests
             [company], CompanyId, [branch], BranchId, ["company_admin"], permissions, true);
     }
 
+    private static CurrentUserContext BranchEditor(bool companyProductEdit)
+    {
+        IReadOnlySet<string> companyPermissions = companyProductEdit
+            ? new HashSet<string>(["product.edit"], StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+        IReadOnlySet<string> branchPermissions = new HashSet<string>(["product.edit"], StringComparer.Ordinal);
+        CompanyMembershipContext company = new(
+            CompanyId, "TTSmart", "TTSmart", Guid.NewGuid(), 3, ["member"], companyPermissions);
+        BranchMembershipContext branch = new(
+            CompanyId, BranchId, "HN", "Hà Nội", Guid.NewGuid(), true, ["branch_editor"], branchPermissions);
+        return new CurrentUserContext(
+            Guid.NewGuid(), true, false, "Branch Editor", "branch@example.test", null,
+            [company], CompanyId, [branch], BranchId, ["member", "branch_editor"],
+            new HashSet<string>(companyPermissions.Concat(branchPermissions), StringComparer.Ordinal), true);
+    }
+
     private sealed class FakeBranches(params BranchCompanyReference[] values) : ICompanyBranchDirectory
     {
+        public Task<IReadOnlyList<ActiveCompanyBranch>> ListActiveBranchesAsync(
+            Guid companyId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ActiveCompanyBranch>>(values
+                .Where(value => value.CompanyId == companyId && value.IsActive)
+                .Select(value => new ActiveCompanyBranch(value.BranchId, value.CompanyId, value.BranchCode, value.BranchCode))
+                .ToArray());
+
         public Task<IReadOnlyDictionary<Guid, BranchCompanyReference>> FindBranchesAsync(
             IReadOnlyCollection<Guid> branchIds,
             CancellationToken cancellationToken) =>

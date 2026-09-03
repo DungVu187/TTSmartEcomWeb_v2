@@ -11,6 +11,33 @@ namespace TTSmartEcom.UnitTests.Security;
 public sealed class CurrentUserContextMiddlewareTests
 {
     [Fact]
+    public async Task CompanyHeaderWithoutMembership_IsRejectedBeforeScopeIsAccepted()
+    {
+        Guid userId = Guid.NewGuid();
+        Guid ownCompanyId = Guid.NewGuid();
+        Guid foreignCompanyId = Guid.NewGuid();
+        CurrentUserContext identity = new(
+            userId, true, false, "User", null, null,
+            [new CompanyMembershipContext(ownCompanyId, "OWN", "Own", Guid.NewGuid(), 3, [], new HashSet<string>())],
+            ownCompanyId, [], null, [], new HashSet<string>(), isControlPlaneIdentity: true);
+        DefaultHttpContext http = new();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("userId", userId.ToString())], "test"));
+        http.Request.Headers["X-Company-Id"] = foreignCompanyId.ToString();
+        bool nextCalled = false;
+        CurrentUserContextMiddleware middleware = new(
+            _ => { nextCalled = true; return Task.CompletedTask; },
+            new FixedControlPlaneIdentityReader(identity),
+            new NullLegacyIdentityReader(),
+            NullLogger<CurrentUserContextMiddleware>.Instance);
+
+        await middleware.InvokeAsync(http);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, http.Response.StatusCode);
+        Assert.False(nextCalled);
+        Assert.False(http.Items.ContainsKey(CurrentUserContextMiddleware.ContextItemKey));
+    }
+
+    [Fact]
     public async Task ConflictingCompanyAndBranchHeaders_AreRejectedWith403()
     {
         Guid userId = Guid.NewGuid();

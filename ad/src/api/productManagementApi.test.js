@@ -15,6 +15,7 @@ import {
   addChipValue,
   addProductQuantity,
   addProductSectionValue,
+  assignProductsToBranches,
   bulkDeleteProducts,
   createProduct,
   createProductBrand,
@@ -28,6 +29,7 @@ import {
   deleteProductVariantImage,
   getChipValues,
   getProductDetail,
+  getProductDistributionBranches,
   getProductDisplaySectionValues,
   getProductDisplayTaxonomy,
   getProductSectionDevices,
@@ -36,6 +38,7 @@ import {
   getProductTaxonomy,
   getProducts,
   removeChipValue,
+  revokeProductsFromBranches,
   saveProductType,
   toggleProductDisplay,
   updateProduct,
@@ -383,6 +386,25 @@ describe("productManagementApi", () => {
 
     await expect(bulkDeleteProducts(["missing-product"])).resolves.toBeUndefined();
     expect(successfulBulkDelete.json).not.toHaveBeenCalled();
+  });
+
+  it("maps product distribution branch, assign and revoke contracts", async () => {
+    const payload = { productIds: ["product-1"], branchIds: ["branch-1"] };
+    apiFetchMock.mockResolvedValue(createResponse({ data: { message: "ok" } }));
+
+    await getProductDistributionBranches();
+    await assignProductsToBranches(payload);
+    await revokeProductsFromBranches(payload);
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(1, "/products/distribution/branches");
+    expect(apiFetchMock).toHaveBeenNthCalledWith(2, "/products/distribution/assign", {
+      method: "POST",
+      json: payload,
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/products/distribution/revoke", {
+      method: "POST",
+      json: payload,
+    });
   });
 
   it("keeps taxonomy requests public and preserves the no-store type request", async () => {

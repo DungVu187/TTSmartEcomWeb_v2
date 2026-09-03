@@ -62,4 +62,24 @@ describe("WorkspaceSelector", () => {
     });
     expect(screen.getByText("Workspace vận hành")).toBeInTheDocument();
   });
+
+  it("chọn Company workspace thì lưu branchId rỗng để chỉ gửi X-Company-Id", () => {
+    render(
+      <MemoryRouter initialEntries={["/system"]}>
+        <Routes>
+          <Route
+            path="/system"
+            element={<WorkspaceSelector profile={profile} open onClose={vi.fn()} />}
+          />
+          <Route path="/product" element={<div>Workspace vận hành</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText("Vận hành doanh nghiệp"));
+    fireEvent.click(screen.getByText("TTSmart", { selector: "p" }));
+    fireEvent.click(screen.getByRole("button", { name: "Truy cập công ty" }));
+
+    expect(setAdminScope).toHaveBeenCalledWith({ companyId: "company-1", branchId: "" });
+  });
 });

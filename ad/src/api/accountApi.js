@@ -67,3 +67,56 @@ export const deleteAccountUser = async (userId) => {
     );
   }
 };
+
+export const getCompanyAccounts = async (companyId) => {
+  const response = await apiFetch(
+    `/control-plane/companies/${encodeURIComponent(companyId)}/accounts`,
+  );
+  if (!response.ok) {
+    throw new Error(
+      await getErrorMessage(response, `Lỗi ${response.status}: Không thể tải tài khoản Company`),
+    );
+  }
+  return response.json();
+};
+
+export const getCompanyRoles = async (companyId) => {
+  const response = await apiFetch(
+    `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/roles`,
+  );
+  if (!response.ok) {
+    throw new Error(
+      await getErrorMessage(response, `Lỗi ${response.status}: Không thể tải role cấp Company`),
+    );
+  }
+  return response.json();
+};
+
+export const saveCompanyMembership = async ({ companyId, userId, userType, roleId }) => {
+  const response = await apiFetch(
+    `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/${encodeURIComponent(userId)}/membership`,
+    {
+      method: "PUT",
+      json: { userType, roleId },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      await getErrorMessage(response, `Lỗi ${response.status}: Không thể cập nhật phạm vi Company`),
+    );
+  }
+  return response.json();
+};
+
+export const revokeCompanyMembership = async ({ companyId, userId }) => {
+  const response = await apiFetch(
+    `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/${encodeURIComponent(userId)}/membership`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) {
+    throw new Error(
+      await getErrorMessage(response, `Lỗi ${response.status}: Không thể thu hồi phạm vi Company`),
+    );
+  }
+  return response.json();
+};

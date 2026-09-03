@@ -13,6 +13,23 @@ namespace TTSmartEcom.Api.Controllers.Products;
 public sealed class ProductBranchDistributionController(ProductBranchDistributionService distribution)
     : ControllerBase
 {
+    [HttpGet("branches")]
+    [PermissionAuthorize("product.edit")]
+    public async Task<IActionResult> ListActiveBranches(CancellationToken cancellationToken)
+    {
+        if (CurrentContext() is not { } context) return Unauthorized(new { message = "Access denied, no token provided" });
+        IReadOnlyList<Application.Abstractions.Products.ActiveCompanyBranch> branches =
+            await distribution.ListActiveBranchesAsync(context, cancellationToken);
+        return Ok(new
+        {
+            branches = branches.Select(branch => new ProductDistributionBranchResponse(
+                branch.BranchId,
+                branch.CompanyId,
+                branch.BranchCode,
+                branch.Name)).ToArray(),
+        });
+    }
+
     [HttpGet("{productId}/branches")]
     [PermissionAuthorize("product.edit")]
     public async Task<IActionResult> List(

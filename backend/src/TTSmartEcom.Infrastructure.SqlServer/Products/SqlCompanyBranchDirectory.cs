@@ -5,6 +5,26 @@ namespace TTSmartEcom.Infrastructure.SqlServer.Products;
 
 public sealed class SqlCompanyBranchDirectory(IControlDbConnectionFactory factory) : ICompanyBranchDirectory
 {
+    public async Task<IReadOnlyList<ActiveCompanyBranch>> ListActiveBranchesAsync(
+        Guid companyId,
+        CancellationToken cancellationToken)
+    {
+        await using SqlConnection connection = factory.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using SqlCommand command = new("""
+            SELECT BranchId,CompanyId,BranchCode,Name
+            FROM dbo.Branches
+            WHERE CompanyId=@companyId AND Status=1 AND IsDeleted=0
+            ORDER BY Name,BranchCode,BranchId;
+            """, connection);
+        command.Parameters.AddWithValue("@companyId", companyId);
+        List<ActiveCompanyBranch> result = [];
+        await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(new(reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3)));
+        return result;
+    }
+
     public async Task<IReadOnlyDictionary<Guid, BranchCompanyReference>> FindBranchesAsync(
         IReadOnlyCollection<Guid> branchIds,
         CancellationToken cancellationToken)

@@ -230,6 +230,30 @@ export const bulkDeleteProducts = async (ids) => {
   }
 };
 
+export const getProductDistributionBranches = async () => {
+  const response = await apiFetch("/products/distribution/branches");
+  await throwProductError(response, "Không thể tải danh sách chi nhánh phân phối");
+  return response.json();
+};
+
+export const assignProductsToBranches = async ({ productIds, branchIds }) => {
+  const response = await apiFetch("/products/distribution/assign", {
+    method: "POST",
+    json: { productIds, branchIds },
+  });
+  await throwProductError(response, "Phân phối sản phẩm thất bại");
+  return response.json();
+};
+
+export const revokeProductsFromBranches = async ({ productIds, branchIds }) => {
+  const response = await apiFetch("/products/distribution/revoke", {
+    method: "POST",
+    json: { productIds, branchIds },
+  });
+  await throwProductError(response, "Thu hồi phân phối sản phẩm thất bại");
+  return response.json();
+};
+
 export const getProducts = async ({ page, limit, filters }) => {
   const query = new URLSearchParams({
     page,

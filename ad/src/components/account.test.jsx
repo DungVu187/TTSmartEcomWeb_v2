@@ -122,6 +122,12 @@ const MOCK_USERS = [
 
 const setupFetch = (overrides = {}) => {
   globalThis.fetch = vi.fn((url) => {
+    if (url.includes("/control-plane/companies/") && url.endsWith("/accounts")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ accounts: overrides.companyAccounts || [] }),
+      });
+    }
     if (url.includes("/users/all-users")) {
       return Promise.resolve({
         ok: true,
@@ -162,6 +168,7 @@ describe("Account", () => {
     mockPermissions.isAdmin = false;
     mockPermissions.isSuperadmin = true;
     mockPermissions.isAdminOrSuperadmin = true;
+    mockPermissions.can.mockReturnValue(true);
     setupFetch();
   });
 
@@ -366,5 +373,54 @@ describe("Account", () => {
     const roleTexts = Array.from(roleOptions).map((el) => el.textContent);
     expect(roleTexts).toContain("Nhân viên");
     expect(roleTexts).not.toContain("Admin");
+  });
+
+  it("chỉ hiển thị thao tác Phạm vi truy cập khi có account.manage hoặc là SuperAdmin", async () => {
+    mockPermissions.profile = { _id: "me3", name: "Staff", role: "staff" };
+    mockPermissions.role = "staff";
+    mockPermissions.isAdmin = false;
+    mockPermissions.isSuperadmin = false;
+    mockPermissions.isAdminOrSuperadmin = false;
+    mockPermissions.can.mockReturnValue(false);
+    setupFetch({ users: [MOCK_USERS[2]] });
+
+    render(<Account />);
+
+    await waitFor(() => expect(screen.getByTestId("row-u3")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Phạm vi truy cập" })).not.toBeInTheDocument();
+  });
+
+  it("tải và hiển thị membership/role hiện tại cho Control Plane account", async () => {
+    const companyId = "11111111-1111-1111-1111-111111111111";
+    const userId = "22222222-2222-2222-2222-222222222222";
+    mockPermissions.profile = {
+      _id: "33333333-3333-3333-3333-333333333333",
+      name: "Company Admin",
+      role: "staff",
+      isControlPlaneIdentity: true,
+      activeCompanyId: companyId,
+      companyMemberships: [{ companyId, name: "TTSmart", permissions: ["account.manage"] }],
+    };
+    mockPermissions.role = "staff";
+    mockPermissions.isAdmin = false;
+    mockPermissions.isSuperadmin = false;
+    mockPermissions.isAdminOrSuperadmin = false;
+    setupFetch({
+      companyAccounts: [{
+        userId,
+        displayName: "Nhân viên Control Plane",
+        phone: "0900000000",
+        email: "cp@example.test",
+        userType: 3,
+        roles: [{ name: "Thành viên Company", permissions: ["product.view"] }],
+      }],
+    });
+
+    render(<Account />);
+
+    await waitFor(() => expect(screen.getByTestId(`row-${userId}`)).toBeInTheDocument());
+    expect(screen.getAllByText("Thành viên Company").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Phạm vi truy cập" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Thêm tài khoản" })).not.toBeInTheDocument();
   });
 });

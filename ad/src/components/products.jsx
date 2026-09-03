@@ -24,6 +24,10 @@ import {
   Paper,
   Box,
   Typography,
+  Alert,
+  CircularProgress,
+  FormControlLabel,
+  Stack,
 } from "@mui/material";
 import "./style/products.css";
 import toast from "react-hot-toast";
@@ -41,6 +45,7 @@ import {
 } from "../utils/homecategoryicons";
 import { calculateSalePrice, formatVariantPrice } from "../utils/productpricing";
 import {
+  assignProductsToBranches,
   bulkDeleteProducts,
   createProduct,
   createProductBrand,
@@ -49,6 +54,7 @@ import {
   deleteProductSection,
   deleteProductType,
   getProductSections,
+  getProductDistributionBranches,
   getProductSectionValues,
   getProductTaxonomy,
   getProducts,
@@ -56,6 +62,7 @@ import {
   toggleProductDisplay,
   updateProductSection,
   uploadProductImage,
+  revokeProductsFromBranches,
 } from "../api/productManagementApi";
 
 const createEmptyProduct = () => ({
@@ -108,12 +115,27 @@ const removeVietnameseTones = (str) => {
 };
 
 const Products = () => {
-  const { can } = usePermissions();
+  const { can, profile, scope, isSuperadmin } = usePermissions();
   const canCreate = can("product.create");
   const canEdit = can("product.edit");
   const canDelete = can("product.delete");
+  const canSelectProducts = canEdit || canDelete;
+  const activeCompanyId = scope?.companyId || profile?.activeCompanyId || "";
+  const activeBranchId = scope?.branchId || profile?.activeBranchId || "";
+  const activeCompanyMembership = profile?.companyMemberships?.find(
+    (membership) => membership.companyId === activeCompanyId,
+  );
+  const hasCompanyProductEdit = isSuperadmin
+    || activeCompanyMembership?.permissions?.includes("product.edit") === true;
+  const canDistribute = Boolean(activeCompanyId) && !activeBranchId && hasCompanyProductEdit;
   const [products, setProducts] = useState([]);
   const [selectedProductIds, setSelectedProductIds] = useState([]);
+  const [distributionMode, setDistributionMode] = useState(null);
+  const [distributionBranches, setDistributionBranches] = useState([]);
+  const [selectedBranchIds, setSelectedBranchIds] = useState([]);
+  const [distributionLoading, setDistributionLoading] = useState(false);
+  const [distributionSubmitting, setDistributionSubmitting] = useState(false);
+  const [distributionError, setDistributionError] = useState("");
   const topScrollRef = useRef(null);
   const tableContainerRef = useRef(null);
   const [tableWidth, setTableWidth] = useState(1600);
@@ -322,11 +344,11 @@ const Products = () => {
   }, [products]);
 
   const handleSelectAllClick = (event) => {
+    const currentIds = products.map((product) => product._id);
     if (event.target.checked) {
-      const newSelecteds = products.map((n) => n._id);
-      setSelectedProductIds(newSelecteds);
+      setSelectedProductIds((previous) => [...new Set([...previous, ...currentIds])]);
     } else {
-      setSelectedProductIds([]);
+      setSelectedProductIds((previous) => previous.filter((id) => !currentIds.includes(id)));
     }
   };
 
@@ -353,7 +375,7 @@ const Products = () => {
   const handleBulkDelete = async () => {
     if (selectedProductIds.length === 0) return;
     const confirmDelete = window.confirm(
-      `Bạn có chắc chắn muốn xóa ${selectedProductIds.length} sản phẩm đã chọn? Hành động này không thể hoàn tác.`
+      `Bạn có chắc chắn muốn xóa ${selectedProductIds.length} Product Master đã chọn? Việc xóa ảnh hưởng toàn bộ chi nhánh và không thể hoàn tác.`
     );
     if (!confirmDelete) return;
 
@@ -366,6 +388,70 @@ const Products = () => {
     } catch (err) {
       console.error(err);
       toast.error(err.message || "Xóa hàng loạt thất bại");
+    }
+  };
+
+  const openDistributionDialog = async (mode) => {
+    if (!canDistribute || selectedProductIds.length === 0) return;
+    setDistributionMode(mode);
+    setSelectedBranchIds([]);
+    setDistributionBranches([]);
+    setDistributionError("");
+    setDistributionLoading(true);
+    try {
+      const result = await getProductDistributionBranches();
+      setDistributionBranches(result.branches || []);
+    } catch (requestError) {
+      setDistributionError(requestError.message || "Không thể tải danh sách chi nhánh.");
+    } finally {
+      setDistributionLoading(false);
+    }
+  };
+
+  const closeDistributionDialog = () => {
+    if (distributionSubmitting) return;
+    setDistributionMode(null);
+    setSelectedBranchIds([]);
+    setDistributionError("");
+  };
+
+  const toggleDistributionBranch = (branchId) => {
+    setSelectedBranchIds((previous) => previous.includes(branchId)
+      ? previous.filter((id) => id !== branchId)
+      : [...previous, branchId]);
+  };
+
+  const submitDistribution = async () => {
+    if (selectedBranchIds.length === 0) {
+      setDistributionError("Vui lòng chọn ít nhất một chi nhánh.");
+      return;
+    }
+    if (distributionMode === "revoke" && !window.confirm(
+      "Xác nhận thu hồi sản phẩm khỏi các chi nhánh đã chọn? Lịch sử và chứng từ cũ không bị xóa.",
+    )) return;
+
+    setDistributionSubmitting(true);
+    setDistributionError("");
+    try {
+      const operation = distributionMode === "assign"
+        ? assignProductsToBranches
+        : revokeProductsFromBranches;
+      const result = await operation({
+        productIds: selectedProductIds,
+        branchIds: selectedBranchIds,
+      });
+      toast.success(result.message || (distributionMode === "assign"
+        ? "Phân phối sản phẩm thành công"
+        : "Thu hồi phân phối sản phẩm thành công"));
+      setDistributionMode(null);
+      setSelectedBranchIds([]);
+      setSelectedProductIds([]);
+      await fetchProducts(currentPage, rowsPerPage);
+    } catch (requestError) {
+      setDistributionError(requestError.message || "Thao tác phân phối thất bại.");
+      toast.error(requestError.message || "Thao tác phân phối thất bại.");
+    } finally {
+      setDistributionSubmitting(false);
     }
   };
 
@@ -1053,6 +1139,28 @@ const Products = () => {
             >
               {showUnadjustedOnly ? "Hiển thị tất cả" : "Sản phẩm chưa điều chỉnh"}
             </Button>
+            {canDistribute && selectedProductIds.length > 0 && (
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                sx={{ marginLeft: 1, minWidth: "fit-content", whiteSpace: "nowrap" }}
+                onClick={() => openDistributionDialog("assign")}
+              >
+                Phân phối ({selectedProductIds.length})
+              </Button>
+            )}
+            {canDistribute && selectedProductIds.length > 0 && (
+              <Button
+                variant="outlined"
+                color="warning"
+                size="small"
+                sx={{ marginLeft: 1, minWidth: "fit-content", whiteSpace: "nowrap" }}
+                onClick={() => openDistributionDialog("revoke")}
+              >
+                Thu hồi ({selectedProductIds.length})
+              </Button>
+            )}
             {canDelete && selectedProductIds.length > 0 && (
               <Button
                 variant="contained"
@@ -1181,12 +1289,15 @@ const Products = () => {
               <TableRow sx={{ backgroundColor: "#dedede" }}>
                 <TableCell align="center" style={{ width: 40, padding: "0 8px" }}>
                   <Checkbox
-                    indeterminate={selectedProductIds.length > 0 && selectedProductIds.length < products.length}
-                    checked={products.length > 0 && selectedProductIds.length === products.length}
+                    indeterminate={
+                      products.some((product) => selectedProductIds.includes(product._id))
+                      && !products.every((product) => selectedProductIds.includes(product._id))
+                    }
+                    checked={products.length > 0 && products.every((product) => selectedProductIds.includes(product._id))}
                     onChange={handleSelectAllClick}
                     color="primary"
                     size="small"
-                    disabled={!canDelete}
+                    disabled={!canSelectProducts}
                   />
                 </TableCell>
                 <TableCell align="center">Hiển thị</TableCell>
@@ -1224,7 +1335,7 @@ const Products = () => {
                       onChange={(e) => handleSelectRow(e, product._id)}
                       color="primary"
                       size="small"
-                      disabled={!canDelete}
+                      disabled={!canSelectProducts}
                     />
                   </TableCell>
                   <TableCell
@@ -1309,6 +1420,68 @@ const Products = () => {
           </Table>
         </TableContainer>
       </div>
+
+      <Dialog
+        open={Boolean(distributionMode)}
+        onClose={closeDistributionDialog}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          {distributionMode === "assign" ? "Phân phối sản phẩm" : "Thu hồi phân phối sản phẩm"}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 1 }}>
+            <Typography variant="body2">
+              Đã chọn <b>{selectedProductIds.length}</b> Product Master. Chọn các chi nhánh đang hoạt động thuộc Company hiện tại.
+            </Typography>
+            {distributionMode === "revoke" && (
+              <Alert severity="warning">
+                Thu hồi chỉ ngừng sử dụng sản phẩm tại chi nhánh; lịch sử và chứng từ cũ không bị xóa.
+              </Alert>
+            )}
+            {distributionError && <Alert severity="error">{distributionError}</Alert>}
+            {distributionLoading ? (
+              <Box sx={{ py: 3, display: "flex", justifyContent: "center" }}>
+                <CircularProgress size={28} />
+              </Box>
+            ) : (
+              <Stack sx={{ maxHeight: 320, overflowY: "auto" }}>
+                {distributionBranches.map((branch) => (
+                  <FormControlLabel
+                    key={branch.branchId}
+                    control={(
+                      <Checkbox
+                        checked={selectedBranchIds.includes(branch.branchId)}
+                        onChange={() => toggleDistributionBranch(branch.branchId)}
+                      />
+                    )}
+                    label={`${branch.name || branch.branchCode} (${branch.branchCode})`}
+                  />
+                ))}
+                {distributionBranches.length === 0 && !distributionError && (
+                  <Typography variant="body2" color="text.secondary">
+                    Company hiện tại chưa có chi nhánh đang hoạt động.
+                  </Typography>
+                )}
+              </Stack>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDistributionDialog} color="inherit" disabled={distributionSubmitting}>Hủy</Button>
+          <Button
+            variant="contained"
+            color={distributionMode === "assign" ? "primary" : "warning"}
+            onClick={submitDistribution}
+            disabled={distributionLoading || distributionSubmitting || selectedBranchIds.length === 0}
+          >
+            {distributionSubmitting
+              ? "Đang xử lý..."
+              : distributionMode === "assign" ? "Phân phối" : "Thu hồi"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={isDialogOpen}

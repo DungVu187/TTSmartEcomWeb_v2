@@ -15,6 +15,14 @@ public sealed class ProductBranchDistributionService(
     private const int MaxBranches = 100;
     private const string RequiredPermission = "product.edit";
 
+    public Task<IReadOnlyList<ActiveCompanyBranch>> ListActiveBranchesAsync(
+        ICurrentUserContext context,
+        CancellationToken cancellationToken)
+    {
+        Guid companyId = RequireCompanyScope(context);
+        return branches.ListActiveBranchesAsync(companyId, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ProductBranchAssignment>> ListAsync(
         string productId,
         ICurrentUserContext context,

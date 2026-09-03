@@ -8,6 +8,12 @@ public sealed record BranchCompanyReference(
     string BranchCode,
     bool IsActive);
 
+public sealed record ActiveCompanyBranch(
+    Guid BranchId,
+    Guid CompanyId,
+    string BranchCode,
+    string Name);
+
 public sealed record ProductBranchAssignmentQueryResult(
     bool ProductExists,
     IReadOnlyList<ProductBranchAssignment> Assignments);
@@ -20,6 +26,10 @@ public sealed record ProductBranchAssignmentMutationResult(
 
 public interface ICompanyBranchDirectory
 {
+    Task<IReadOnlyList<ActiveCompanyBranch>> ListActiveBranchesAsync(
+        Guid companyId,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyDictionary<Guid, BranchCompanyReference>> FindBranchesAsync(
         IReadOnlyCollection<Guid> branchIds,
         CancellationToken cancellationToken);

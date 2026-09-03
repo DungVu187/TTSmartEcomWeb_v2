@@ -140,8 +140,10 @@ public static class DependencyInjection
 
         services.AddSingleton<IControlPlaneIdentityReader, SqlControlPlaneIdentityReader>();
         services.AddScoped<IControlPlaneUserRepository, SqlControlPlaneUserRepository>();
+        services.AddScoped<ICompanyAccountAdministrationRepository, SqlCompanyAccountAdministrationRepository>();
         services.AddSingleton<IAccessScopeService, AccessScopeService>();
         services.AddScoped<ControlPlaneAuthenticationService>();
+        services.AddScoped<CompanyAccountAdministrationService>();
 
         return services;
     }

@@ -8,9 +8,13 @@ vi.mock("./httpClient", () => ({
 
 import {
   deleteAccountUser,
+  getCompanyAccounts,
+  getCompanyRoles,
   getAccountPermissionCatalog,
   getAccountUsers,
   saveAccountUser,
+  saveCompanyMembership,
+  revokeCompanyMembership,
 } from "./accountApi";
 
 const createResponse = ({ ok = true, status = 200, data }) => ({
@@ -101,6 +105,37 @@ describe("accountApi", () => {
     });
     await expect(deleteAccountUser("user-2")).rejects.toThrow(
       "Lỗi 404: Xóa tài khoản thất bại",
+    );
+  });
+
+  it("maps Company membership list, role, upsert and revoke contracts", async () => {
+    const companyId = "11111111-1111-1111-1111-111111111111";
+    const userId = "22222222-2222-2222-2222-222222222222";
+    const roleId = "33333333-3333-3333-3333-333333333333";
+    apiFetchMock.mockResolvedValue(createResponse({ data: {} }));
+
+    await getCompanyAccounts(companyId);
+    await getCompanyRoles(companyId);
+    await saveCompanyMembership({ companyId, userId, userType: 2, roleId });
+    await revokeCompanyMembership({ companyId, userId });
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      `/control-plane/companies/${companyId}/accounts`,
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      `/control-plane/companies/${companyId}/accounts/roles`,
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      `/control-plane/companies/${companyId}/accounts/${userId}/membership`,
+      { method: "PUT", json: { userType: 2, roleId } },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      4,
+      `/control-plane/companies/${companyId}/accounts/${userId}/membership`,
+      { method: "DELETE" },
     );
   });
 });
