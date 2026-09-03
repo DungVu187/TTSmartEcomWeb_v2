@@ -1,8 +1,14 @@
 import { apiFetch } from "./httpClient";
 
 const getErrorMessage = async (response, fallback) => {
-  const errorData = await response.json();
-  return errorData.message || fallback;
+  try {
+    const errorData = await response.json();
+    return typeof errorData?.message === "string" && errorData.message.trim()
+      ? errorData.message
+      : fallback;
+  } catch {
+    return fallback;
+  }
 };
 
 export const getAccountUsers = async () => {

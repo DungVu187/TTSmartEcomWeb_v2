@@ -138,4 +138,17 @@ describe("accountApi", () => {
       { method: "DELETE" },
     );
   });
+
+  it("uses the HTTP fallback when an upstream error is not JSON", async () => {
+    const companyId = "11111111-1111-1111-1111-111111111111";
+    apiFetchMock.mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token 'T'")),
+    });
+
+    await expect(getCompanyAccounts(companyId)).rejects.toThrow(
+      "Lỗi 404: Không thể tải tài khoản Company",
+    );
+  });
 });
