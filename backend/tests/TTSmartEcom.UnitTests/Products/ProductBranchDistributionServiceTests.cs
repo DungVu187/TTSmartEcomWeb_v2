@@ -29,18 +29,16 @@ public sealed class ProductBranchDistributionServiceTests
     }
 
     [Fact]
-    public async Task AssignAsync_RepeatedAssignmentIsIdempotent()
+    public async Task AssignAsync_RepeatedAssignmentDoesNotReportFalseSuccess()
     {
         FakeAssignments assignments = new() { ChangedCount = 0 };
         FakeBranches branches = new(new BranchCompanyReference(BranchId, CompanyId, "HN", true));
         ProductBranchDistributionService service = new(assignments, branches, new AccessScopeService());
 
-        ProductBranchAssignmentChange result = await service.AssignAsync(
-            [ProductId, ProductId], [BranchId, BranchId], CompanyAdmin(), CancellationToken.None);
+        TtsApplicationException error = await Assert.ThrowsAsync<TtsApplicationException>(() =>
+            service.AssignAsync([ProductId, ProductId], [BranchId, BranchId], CompanyAdmin(), CancellationToken.None));
 
-        Assert.Equal(0, result.ChangedCount);
-        Assert.Single(result.ProductIds);
-        Assert.Single(result.BranchIds);
+        Assert.Equal(409, error.Error.HttpStatus);
         Assert.Equal(1, assignments.CallCount);
     }
 
@@ -56,6 +54,21 @@ public sealed class ProductBranchDistributionServiceTests
 
         Assert.Equal(1, result.ChangedCount);
         Assert.False(assignments.LastIsActive);
+    }
+
+    [Fact]
+    public async Task DistributionStatus_LoadsAllActiveBranchesInOneRepositoryCall()
+    {
+        FakeAssignments assignments = new();
+        FakeBranches branches = new(new BranchCompanyReference(BranchId, CompanyId, "HN", true));
+        ProductBranchDistributionService service = new(assignments, branches, new AccessScopeService());
+
+        IReadOnlyList<ProductBranchDistributionStatus> result = await service.GetDistributionStatusAsync(
+            [ProductId], CompanyAdmin(), CancellationToken.None);
+
+        ProductBranchDistributionStatus status = Assert.Single(result);
+        Assert.Equal(BranchId, status.BranchId);
+        Assert.Equal(1, assignments.StatusCallCount);
     }
 
     [Fact]
@@ -199,6 +212,16 @@ public sealed class ProductBranchDistributionServiceTests
         public int CallCount { get; private set; }
         public long ChangedCount { get; init; }
         public bool LastIsActive { get; private set; }
+        public int StatusCallCount { get; private set; }
+
+        public Task<IReadOnlyList<ProductBranchDistributionStatus>> GetDistributionStatusAsync(
+            Guid companyId, IReadOnlyCollection<string> productPublicIds,
+            IReadOnlyCollection<Guid> branchIds, CancellationToken cancellationToken)
+        {
+            StatusCallCount++;
+            return Task.FromResult<IReadOnlyList<ProductBranchDistributionStatus>>(
+                branchIds.Select(id => new ProductBranchDistributionStatus(id, 1, productPublicIds.Count)).ToArray());
+        }
 
         public Task<ProductBranchAssignmentQueryResult> ListForProductAsync(Guid companyId, string productPublicId, CancellationToken cancellationToken) =>
             Task.FromResult(new ProductBranchAssignmentQueryResult(true, []));

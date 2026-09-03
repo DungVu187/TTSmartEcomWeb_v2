@@ -65,7 +65,7 @@ public sealed class CompanyAccountAdministrationServiceTests
                 CancellationToken.None));
 
         Assert.Equal(403, error.Error.HttpStatus);
-        Assert.Contains("account.manage", error.Message, StringComparison.Ordinal);
+        Assert.Contains("quyền quản lý người dùng", error.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -107,7 +107,8 @@ public sealed class CompanyAccountAdministrationServiceTests
                 CancellationToken.None));
 
         Assert.Equal(409, error.Error.HttpStatus);
-        Assert.Contains("legacy Operational", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Control Plane", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tài khoản quản trị", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -137,7 +138,37 @@ public sealed class CompanyAccountAdministrationServiceTests
         Assert.Equal(401, error.Error.HttpStatus);
     }
 
-    private static CurrentUserContext CompanyManager(IReadOnlySet<string>? permissions = null)
+    [Fact]
+    public async Task CompanyOwner_CannotCreateAnotherOwner()
+    {
+        FakeRepository repository = new();
+        CompanyAccountAdministrationService service = new(repository, new AccessScopeService());
+
+        TtsApplicationException error = await Assert.ThrowsAsync<TtsApplicationException>(() =>
+            service.UpsertMembershipAsync(CompanyId, UserId.ToString(), 1, RoleId,
+                CompanyManager(userType: ControlPlaneUserType.Owner), Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal(403, error.Error.HttpStatus);
+        Assert.Null(repository.LastUpsert);
+    }
+
+    [Fact]
+    public async Task CompanyAdministration_IsUnavailableInsideBranchWorkspace()
+    {
+        FakeRepository repository = new();
+        CompanyAccountAdministrationService service = new(repository, new AccessScopeService());
+        CurrentUserContext branchContext = CompanyManager(activeBranchId: Guid.NewGuid());
+
+        TtsApplicationException error = await Assert.ThrowsAsync<TtsApplicationException>(() =>
+            service.ListMembershipsAsync(CompanyId, branchContext, CancellationToken.None));
+
+        Assert.Equal(403, error.Error.HttpStatus);
+    }
+
+    private static CurrentUserContext CompanyManager(
+        IReadOnlySet<string>? permissions = null,
+        ControlPlaneUserType userType = ControlPlaneUserType.Admin,
+        Guid? activeBranchId = null)
     {
         IReadOnlySet<string> granted = permissions ?? new HashSet<string>(
             ["account.manage", "product.edit"], StringComparer.Ordinal);
@@ -146,12 +177,13 @@ public sealed class CompanyAccountAdministrationServiceTests
             "TTSMART",
             "TTSmart",
             Guid.NewGuid(),
-            (byte)ControlPlaneUserType.Admin,
+            (byte)userType,
             ["company_admin"],
             granted);
         return new CurrentUserContext(
             Guid.NewGuid(), true, false, "Company Admin", "admin@example.test", null,
-            [membership], CompanyId, [], null, ["company_admin"], granted, true);
+            [membership], CompanyId, [], activeBranchId, ["company_admin"], granted, true,
+            inferActiveBranch: false);
     }
 
     private static CompanyAccountMembership Membership() => new(

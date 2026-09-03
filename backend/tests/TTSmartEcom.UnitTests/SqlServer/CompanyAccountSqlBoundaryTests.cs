@@ -34,6 +34,20 @@ public sealed class CompanyAccountSqlBoundaryTests
         Assert.DoesNotContain("PermissionJson", source, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void EffectivePermissions_AreFilteredByEnabledCompanyAndBranchFeatures()
+    {
+        string identity = Read("backend", "src", "TTSmartEcom.Infrastructure.SqlServer", "Security", "SqlControlPlaneIdentityReader.cs");
+        string administration = Read("backend", "src", "TTSmartEcom.Infrastructure.SqlServer", "Security", "SqlCompanyAccountAdministrationRepository.cs");
+
+        Assert.Contains("dbo.CompanyFeatureSettings", identity, StringComparison.Ordinal);
+        Assert.Contains("dbo.BranchFeatureSettings", identity, StringComparison.Ordinal);
+        Assert.Contains("f.ModuleCode=p.ModuleCode", identity, StringComparison.Ordinal);
+        Assert.Contains("ReadEffectivePermissionIdsAsync", administration, StringComparison.Ordinal);
+        Assert.Contains("PermissionOutsideEnabledFeature", administration, StringComparison.Ordinal);
+        Assert.DoesNotContain("INSERT dbo.Features", administration, StringComparison.Ordinal);
+    }
+
     private static string Read(params string[] segments) =>
         File.ReadAllText(Path.Combine([RepositoryRoot(), .. segments]));
 

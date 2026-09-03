@@ -43,7 +43,7 @@ const products = [
   { _id: PRODUCT_B, name: "Sản phẩm B", code: "B", display: true, variant: [{}] },
 ];
 
-const setupFetch = ({ assignFails = false } = {}) => {
+const setupFetch = ({ assignFails = false, distributionStatus = "none" } = {}) => {
   globalThis.fetch = vi.fn(async (url, options = {}) => {
     const value = String(url);
     if (value.includes("/products?")) {
@@ -57,13 +57,21 @@ const setupFetch = ({ assignFails = false } = {}) => {
         }),
       };
     }
+    if (value.endsWith("/products/distribution/status")) {
+      return { ok: true, json: async () => ({ branches: [{
+        branchId: BRANCH_ID,
+        assignedCount: distributionStatus === "none" ? 0 : 1,
+        selectedCount: 1,
+        status: distributionStatus,
+      }] }) };
+    }
     if (value.endsWith("/products/distribution/assign")) {
       return assignFails
         ? { ok: false, json: async () => ({ message: "Không thể phân phối lúc này" }) }
-        : { ok: true, json: async () => ({ message: "Phân phối sản phẩm thành công" }) };
+        : { ok: true, json: async () => ({ message: "Phân phối sản phẩm thành công", changedCount: 1 }) };
     }
     if (value.endsWith("/products/distribution/revoke")) {
-      return { ok: true, json: async () => ({ message: "Thu hồi phân phối sản phẩm thành công" }) };
+      return { ok: true, json: async () => ({ message: "Thu hồi phân phối sản phẩm thành công", changedCount: 1 }) };
     }
     if (value.includes("/bulk-delete")) {
       return { ok: true, json: async () => ({ message: "Đã xóa" }) };
@@ -134,7 +142,7 @@ describe("Products distribution", () => {
     render(<Products />);
     await selectProduct();
     fireEvent.click(screen.getByRole("button", { name: "Phân phối (1)" }));
-    fireEvent.click(await screen.findByLabelText("Chi nhánh Hà Nội (HN)"));
+    fireEvent.click(await screen.findByLabelText(/Chi nhánh Hà Nội \(HN\).*Chưa phân phối/));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phân phối" }));
 
     await waitFor(() => {
@@ -151,12 +159,13 @@ describe("Products distribution", () => {
 
   it("xác nhận thu hồi và nêu rõ lịch sử, chứng từ cũ không bị xóa", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    setupFetch({ distributionStatus: "all" });
     render(<Products />);
     await selectProduct();
     fireEvent.click(screen.getByRole("button", { name: "Thu hồi (1)" }));
 
     expect(await screen.findByText(/lịch sử và chứng từ cũ không bị xóa/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Chi nhánh Hà Nội (HN)"));
+    fireEvent.click(screen.getByLabelText(/Chi nhánh Hà Nội \(HN\).*Đã phân phối toàn bộ/));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Thu hồi" }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/Lịch sử và chứng từ cũ không bị xóa/i)));
@@ -168,7 +177,7 @@ describe("Products distribution", () => {
     render(<Products />);
     await selectProduct();
     fireEvent.click(screen.getByRole("button", { name: "Phân phối (1)" }));
-    fireEvent.click(await screen.findByLabelText("Chi nhánh Hà Nội (HN)"));
+    fireEvent.click(await screen.findByLabelText(/Chi nhánh Hà Nội \(HN\).*Chưa phân phối/));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phân phối" }));
 
     expect(await screen.findByText("Không thể phân phối lúc này")).toBeInTheDocument();
@@ -177,7 +186,7 @@ describe("Products distribution", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("cảnh báo rõ xóa Product Master ảnh hưởng toàn bộ chi nhánh", async () => {
+  it("cảnh báo rõ xóa sản phẩm ảnh hưởng toàn bộ chi nhánh", async () => {
     permissionState.permissions = new Set(["product.delete"]);
     permissionState.companyPermissions = [];
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -185,6 +194,6 @@ describe("Products distribution", () => {
     await selectProduct();
     fireEvent.click(screen.getByRole("button", { name: "Xóa (1)" }));
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/Product Master.*toàn bộ chi nhánh/i));
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/sản phẩm.*toàn bộ chi nhánh/i));
   });
 });

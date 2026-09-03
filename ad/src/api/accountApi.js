@@ -126,3 +126,94 @@ export const revokeCompanyMembership = async ({ companyId, userId }) => {
   }
   return response.json();
 };
+
+export const setCompanyMembershipStatus = async ({ companyId, userId, isActive }) => {
+  const response = await apiFetch(
+    `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/${encodeURIComponent(userId)}/status`,
+    { method: "PUT", json: { isActive } },
+  );
+  if (!response.ok) throw new Error(await getErrorMessage(response, "Không thể cập nhật trạng thái truy cập"));
+  return response.json();
+};
+
+const requestJson = async (path, options, fallback) => {
+  const response = await apiFetch(path, options);
+  if (!response.ok) throw new Error(await getErrorMessage(response, fallback));
+  return response.json();
+};
+
+export const getPlatformCompanies = () => requestJson(
+  "/control-plane/companies", undefined, "Không thể tải danh sách công ty",
+);
+
+export const getPlatformBranches = (companyId) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/branches`,
+  undefined,
+  "Không thể tải danh sách chi nhánh",
+);
+
+export const getFeatureSettings = ({ companyId, branchId = "" }) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/features${branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""}`,
+  undefined,
+  "Không thể tải chức năng",
+);
+
+export const setFeatureSetting = ({ companyId, branchId = "", featureId, isEnabled }) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/features/${encodeURIComponent(featureId)}${branchId ? `/branches/${encodeURIComponent(branchId)}` : ""}`,
+  { method: "PUT", json: { isEnabled } },
+  "Không thể cập nhật chức năng",
+);
+
+export const searchPlatformUsers = (query) => requestJson(
+  `/control-plane/users/search?query=${encodeURIComponent(query)}`,
+  undefined,
+  "Không thể tìm người dùng",
+);
+
+export const lookupCompanyUser = (identifier) => requestJson(
+  `/control-plane/users/lookup?identifier=${encodeURIComponent(identifier)}`,
+  undefined,
+  "Không tìm thấy người dùng phù hợp",
+);
+
+export const getCompanyPermissions = (companyId) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/permissions`,
+  undefined,
+  "Không thể tải danh mục quyền",
+);
+
+export const saveCompanyRole = ({ companyId, roleId, name, description, scopeType, permissionIds }) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/roles${roleId ? `/${encodeURIComponent(roleId)}` : ""}`,
+  { method: roleId ? "PUT" : "POST", json: { name, description, scopeType, permissionIds } },
+  "Không thể lưu vai trò",
+);
+
+export const getUserBranches = ({ companyId, userId }) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/${encodeURIComponent(userId)}/branches`,
+  undefined,
+  "Không thể tải quyền truy cập chi nhánh",
+);
+
+export const saveUserBranch = ({ companyId, userId, branchId, roleId, isPrimary = false }) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/${encodeURIComponent(userId)}/branches/${encodeURIComponent(branchId)}`,
+  { method: "PUT", json: { roleId, isPrimary } },
+  "Không thể cấp quyền truy cập chi nhánh",
+);
+
+export const revokeUserBranch = ({ companyId, userId, branchId }) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/${encodeURIComponent(userId)}/branches/${encodeURIComponent(branchId)}`,
+  { method: "DELETE" },
+  "Không thể ngừng quyền truy cập chi nhánh",
+);
+
+export const getBranchUsers = ({ companyId, branchId }) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/branches/${encodeURIComponent(branchId)}/users`,
+  undefined,
+  "Không thể tải người dùng chi nhánh",
+);
+
+export const getBranchRoles = ({ companyId, branchId }) => requestJson(
+  `/control-plane/companies/${encodeURIComponent(companyId)}/accounts/branches/${encodeURIComponent(branchId)}/roles`,
+  undefined,
+  "Không thể tải vai trò chi nhánh",
+);

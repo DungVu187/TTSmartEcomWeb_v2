@@ -24,8 +24,15 @@ public sealed class CompanyAccountAdministrationContractTests
     [Theory]
     [InlineData(nameof(CompanyAccountAdministrationController.List), "GET", null)]
     [InlineData(nameof(CompanyAccountAdministrationController.ListRoles), "GET", "roles")]
+    [InlineData(nameof(CompanyAccountAdministrationController.ListPermissions), "GET", "permissions")]
+    [InlineData(nameof(CompanyAccountAdministrationController.CreateRole), "POST", "roles")]
+    [InlineData(nameof(CompanyAccountAdministrationController.UpdateRole), "PUT", "roles/{roleId:guid}")]
+    [InlineData(nameof(CompanyAccountAdministrationController.ListBranches), "GET", "{userId}/branches")]
+    [InlineData(nameof(CompanyAccountAdministrationController.SaveBranch), "PUT", "{userId}/branches/{branchId:guid}")]
+    [InlineData(nameof(CompanyAccountAdministrationController.RevokeBranch), "DELETE", "{userId}/branches/{branchId:guid}")]
     [InlineData(nameof(CompanyAccountAdministrationController.Upsert), "PUT", "{userId}/membership")]
     [InlineData(nameof(CompanyAccountAdministrationController.Revoke), "DELETE", "{userId}/membership")]
+    [InlineData(nameof(CompanyAccountAdministrationController.SetStatus), "PUT", "{userId}/status")]
     public void Actions_UseExpectedMethodAndRoute(string methodName, string httpMethod, string? template)
     {
         MethodInfo method = typeof(CompanyAccountAdministrationController).GetMethod(methodName)!;
@@ -73,5 +80,17 @@ public sealed class CompanyAccountAdministrationContractTests
         Assert.Equal((byte)ControlPlaneUserType.Member, response.UserType);
         Assert.Equal(roleId, Assert.Single(response.Roles).RoleId);
         Assert.Equal((byte)ControlPlaneScopeType.Company, Assert.Single(response.Roles).ScopeType);
+    }
+
+    [Fact]
+    public void PlatformSearchAndCompanyList_AreSeparateAuthenticatedRoutes()
+    {
+        RouteAttribute route = Assert.Single(typeof(PlatformAccessAdministrationController).GetCustomAttributes<RouteAttribute>());
+        Assert.Equal("control-plane", route.Template);
+        Assert.Single(typeof(PlatformAccessAdministrationController).GetCustomAttributes<AuthorizeAttribute>());
+        Assert.Equal("companies", Assert.Single(typeof(PlatformAccessAdministrationController)
+            .GetMethod(nameof(PlatformAccessAdministrationController.Companies))!.GetCustomAttributes<HttpGetAttribute>()).Template);
+        Assert.Equal("users/search", Assert.Single(typeof(PlatformAccessAdministrationController)
+            .GetMethod(nameof(PlatformAccessAdministrationController.SearchUsers))!.GetCustomAttributes<HttpGetAttribute>()).Template);
     }
 }

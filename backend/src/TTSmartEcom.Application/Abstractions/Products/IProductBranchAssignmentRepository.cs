@@ -24,6 +24,11 @@ public sealed record ProductBranchAssignmentMutationResult(
     IReadOnlyList<ProductBranchAssignment> Assignments,
     IReadOnlyList<string> MissingProductIds);
 
+public sealed record ProductBranchDistributionStatus(
+    Guid BranchId,
+    int AssignedCount,
+    int SelectedCount);
+
 public interface ICompanyBranchDirectory
 {
     Task<IReadOnlyList<ActiveCompanyBranch>> ListActiveBranchesAsync(
@@ -37,6 +42,12 @@ public interface ICompanyBranchDirectory
 
 public interface IProductBranchAssignmentRepository
 {
+    Task<IReadOnlyList<ProductBranchDistributionStatus>> GetDistributionStatusAsync(
+        Guid companyId,
+        IReadOnlyCollection<string> productPublicIds,
+        IReadOnlyCollection<Guid> branchIds,
+        CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ProductBranchDistributionStatus>>([]);
+
     Task<ProductBranchAssignmentQueryResult> ListForProductAsync(
         Guid companyId,
         string productPublicId,

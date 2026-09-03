@@ -9,6 +9,35 @@ namespace TTSmartEcom.Infrastructure.SqlServer.Products;
 public sealed class SqlProductBranchAssignmentRepository(ICompanyDbConnectionFactory factory)
     : IProductBranchAssignmentRepository
 {
+    public async Task<IReadOnlyList<ProductBranchDistributionStatus>> GetDistributionStatusAsync(
+        Guid companyId,
+        IReadOnlyCollection<string> productPublicIds,
+        IReadOnlyCollection<Guid> branchIds,
+        CancellationToken cancellationToken)
+    {
+        await using SqlConnection connection = factory.Create();
+        await connection.OpenAsync(cancellationToken);
+        await EnsureCompanyAsync(connection, null, companyId, cancellationToken);
+        string[] products = productPublicIds.Distinct(StringComparer.Ordinal).ToArray();
+        Guid[] branches = branchIds.Distinct().ToArray();
+        if (products.Length == 0 || branches.Length == 0) return [];
+        await using SqlCommand command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT selected.BranchId,COUNT(p.ProductId) AssignedCount
+            FROM (VALUES {string.Join(',', branches.Select((_, index) => $"(@branch{index})"))}) selected(BranchId)
+            LEFT JOIN dbo.ProductBranchAssignments a ON a.BranchId=selected.BranchId AND a.IsActive=1
+            LEFT JOIN dbo.Products p ON p.ProductId=a.ProductId AND p.IsDeleted=0
+              AND p.PublicId IN ({string.Join(',', products.Select((_, index) => "@product" + index))})
+            GROUP BY selected.BranchId;
+            """;
+        for (int index = 0; index < branches.Length; index++) command.Parameters.AddWithValue("@branch" + index, branches[index]);
+        for (int index = 0; index < products.Length; index++) command.Parameters.AddWithValue("@product" + index, products[index]);
+        Dictionary<Guid, int> counts = branches.ToDictionary(id => id, _ => 0);
+        await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) counts[reader.GetGuid(0)] = reader.GetInt32(1);
+        return branches.Select(id => new ProductBranchDistributionStatus(id, counts[id], products.Length)).ToArray();
+    }
+
     public async Task<ProductBranchAssignmentQueryResult> ListForProductAsync(
         Guid companyId,
         string productPublicId,

@@ -74,7 +74,8 @@ public sealed class CompanyAccountAdministrationSecurityTests
         return new CurrentUserContext(
             Guid.NewGuid(), true, false, "Admin", "admin@example.test", null,
             [company], CompanyId, [branch], branchOnlyPermission ? BranchId : null,
-            ["ADMIN"], new HashSet<string>(companyPermissions.Concat(branchPermissions), StringComparer.Ordinal), true);
+            ["ADMIN"], new HashSet<string>(companyPermissions.Concat(branchPermissions), StringComparer.Ordinal), true,
+            inferActiveBranch: branchOnlyPermission);
     }
 
     private sealed class FakeRepository(

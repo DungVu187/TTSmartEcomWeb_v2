@@ -236,6 +236,15 @@ export const getProductDistributionBranches = async () => {
   return response.json();
 };
 
+export const getProductDistributionStatus = async (productIds) => {
+  const response = await apiFetch("/products/distribution/status", {
+    method: "POST",
+    json: { productIds },
+  });
+  await throwProductError(response, "Không thể tải trạng thái phân phối");
+  return response.json();
+};
+
 export const assignProductsToBranches = async ({ productIds, branchIds }) => {
   const response = await apiFetch("/products/distribution/assign", {
     method: "POST",

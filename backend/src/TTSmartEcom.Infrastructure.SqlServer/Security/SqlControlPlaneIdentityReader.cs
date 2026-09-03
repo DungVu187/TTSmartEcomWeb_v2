@@ -126,6 +126,33 @@ FROM dbo.UserRoles ur
 INNER JOIN dbo.Roles r ON r.RoleId = ur.RoleId
 LEFT JOIN dbo.RolePermissions rp ON rp.RoleId = r.RoleId AND rp.IsDeleted = 0
 LEFT JOIN dbo.Permissions p ON p.PermissionId = rp.PermissionId AND p.IsDeleted = 0 AND p.Status = 1
+  AND EXISTS
+  (
+    SELECT 1
+    FROM dbo.Features f
+    INNER JOIN dbo.CompanyFeatureSettings cf ON cf.FeatureId=f.FeatureId
+      AND cf.IsEnabled=1 AND cf.IsDeleted=0
+      AND (cf.EffectiveFromUtc IS NULL OR cf.EffectiveFromUtc<=SYSUTCDATETIME())
+      AND (cf.EffectiveToUtc IS NULL OR cf.EffectiveToUtc>=SYSUTCDATETIME())
+    WHERE f.ModuleCode=p.ModuleCode AND f.Status=1 AND f.IsDeleted=0
+      AND
+      (
+        (ur.CompanyUserId IS NOT NULL AND EXISTS
+          (SELECT 1 FROM dbo.CompanyUsers ecu
+           WHERE ecu.CompanyUserId=ur.CompanyUserId AND ecu.CompanyId=cf.CompanyId))
+        OR
+        (ur.BranchUserId IS NOT NULL AND EXISTS
+          (SELECT 1 FROM dbo.BranchUsers ebu
+           INNER JOIN dbo.Branches eb ON eb.BranchId=ebu.BranchId
+           WHERE ebu.BranchUserId=ur.BranchUserId AND eb.CompanyId=cf.CompanyId
+             AND NOT EXISTS
+             (SELECT 1 FROM dbo.BranchFeatureSettings bf
+              WHERE bf.BranchId=eb.BranchId AND bf.FeatureId=f.FeatureId
+                AND bf.IsDeleted=0 AND
+                (bf.IsEnabled=0 OR (bf.EffectiveFromUtc IS NOT NULL AND bf.EffectiveFromUtc>SYSUTCDATETIME())
+                  OR (bf.EffectiveToUtc IS NOT NULL AND bf.EffectiveToUtc<SYSUTCDATETIME())))))
+      )
+  )
 WHERE ur.IsDeleted = 0
   AND r.IsDeleted = 0 AND r.Status = 1
   AND (ur.StartsAtUtc IS NULL OR ur.StartsAtUtc <= SYSUTCDATETIME())

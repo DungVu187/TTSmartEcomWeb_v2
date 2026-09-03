@@ -55,6 +55,7 @@ import {
   deleteProductType,
   getProductSections,
   getProductDistributionBranches,
+  getProductDistributionStatus,
   getProductSectionValues,
   getProductTaxonomy,
   getProducts,
@@ -375,7 +376,7 @@ const Products = () => {
   const handleBulkDelete = async () => {
     if (selectedProductIds.length === 0) return;
     const confirmDelete = window.confirm(
-      `Bạn có chắc chắn muốn xóa ${selectedProductIds.length} Product Master đã chọn? Việc xóa ảnh hưởng toàn bộ chi nhánh và không thể hoàn tác.`
+      `Bạn có chắc chắn muốn xóa ${selectedProductIds.length} sản phẩm đã chọn? Việc xóa ảnh hưởng toàn bộ chi nhánh và không thể hoàn tác.`
     );
     if (!confirmDelete) return;
 
@@ -399,8 +400,19 @@ const Products = () => {
     setDistributionError("");
     setDistributionLoading(true);
     try {
-      const result = await getProductDistributionBranches();
-      setDistributionBranches(result.branches || []);
+      const [branchResult, statusResult] = await Promise.all([
+        getProductDistributionBranches(),
+        getProductDistributionStatus(selectedProductIds),
+      ]);
+      const statuses = new Map((statusResult.branches || []).map((item) => [item.branchId, item]));
+      setDistributionBranches((branchResult.branches || []).map((branch) => ({
+        ...branch,
+        distribution: statuses.get(branch.branchId) || {
+          assignedCount: 0,
+          selectedCount: selectedProductIds.length,
+          status: "none",
+        },
+      })));
     } catch (requestError) {
       setDistributionError(requestError.message || "Không thể tải danh sách chi nhánh.");
     } finally {
@@ -440,6 +452,9 @@ const Products = () => {
         productIds: selectedProductIds,
         branchIds: selectedBranchIds,
       });
+      if (!result.changedCount) throw new Error(distributionMode === "assign"
+        ? "Các sản phẩm đã được phân phối đầy đủ tới chi nhánh đã chọn."
+        : "Các sản phẩm chưa được phân phối tới chi nhánh đã chọn.");
       toast.success(result.message || (distributionMode === "assign"
         ? "Phân phối sản phẩm thành công"
         : "Thu hồi phân phối sản phẩm thành công"));
@@ -456,6 +471,13 @@ const Products = () => {
   };
 
   const navigate = useNavigate();
+
+  const selectedProductNames = selectedProductIds
+    .map((id) => products.find((product) => product._id === id)?.name)
+    .filter(Boolean);
+  const selectedProductSummary = selectedProductNames.length <= 3
+    ? selectedProductNames.join(", ")
+    : `${selectedProductNames.slice(0, 3).join(", ")} và ${selectedProductNames.length - 3} sản phẩm khác`;
 
   const handleRowClick = (_id) => {
     navigate(`/product/${_id}`);
@@ -1433,8 +1455,11 @@ const Products = () => {
         <DialogContent>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
             <Typography variant="body2">
-              Đã chọn <b>{selectedProductIds.length}</b> Product Master. Chọn các chi nhánh đang hoạt động thuộc Company hiện tại.
+              Đã chọn <b>{selectedProductIds.length}</b> sản phẩm trong công ty hiện tại.
             </Typography>
+            {selectedProductSummary && (
+              <Typography variant="body2" color="text.secondary">{selectedProductSummary}</Typography>
+            )}
             {distributionMode === "revoke" && (
               <Alert severity="warning">
                 Thu hồi chỉ ngừng sử dụng sản phẩm tại chi nhánh; lịch sử và chứng từ cũ không bị xóa.
@@ -1447,21 +1472,32 @@ const Products = () => {
               </Box>
             ) : (
               <Stack sx={{ maxHeight: 320, overflowY: "auto" }}>
-                {distributionBranches.map((branch) => (
+                {distributionBranches.map((branch) => {
+                  const statusLabel = branch.distribution?.status === "all"
+                    ? "Đã phân phối toàn bộ"
+                    : branch.distribution?.status === "partial"
+                      ? "Đã phân phối một phần"
+                      : "Chưa phân phối";
+                  const disabled = distributionMode === "assign"
+                    ? branch.distribution?.status === "all"
+                    : branch.distribution?.status === "none";
+                  return (
                   <FormControlLabel
                     key={branch.branchId}
+                    disabled={disabled}
                     control={(
                       <Checkbox
                         checked={selectedBranchIds.includes(branch.branchId)}
                         onChange={() => toggleDistributionBranch(branch.branchId)}
                       />
                     )}
-                    label={`${branch.name || branch.branchCode} (${branch.branchCode})`}
+                    label={`${branch.name || branch.branchCode} (${branch.branchCode}) — ${statusLabel}`}
                   />
-                ))}
+                  );
+                })}
                 {distributionBranches.length === 0 && !distributionError && (
                   <Typography variant="body2" color="text.secondary">
-                    Company hiện tại chưa có chi nhánh đang hoạt động.
+                    Công ty hiện tại chưa có chi nhánh đang hoạt động.
                   </Typography>
                 )}
               </Stack>

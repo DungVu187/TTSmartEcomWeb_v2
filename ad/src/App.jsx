@@ -20,7 +20,7 @@ import OrderedProducts from './components/iporder/orderedproducts';
 import EpOrders from './components/eporder/eporders';
 import ExportOrderDetail from './components/eporder/eporderdetail';
 import ExportedProducts from './components/eporder/exportedproducts';
-import Account from './components/account';
+import AccessAdministration from './components/accessadministration';
 import StationUser from './components/stationuser';
 import Station from './components/station';
 import StationDisplay from './components/stationdisplay';
@@ -34,6 +34,7 @@ import { PermissionProvider, usePermissions } from './context/permissioncontext'
 import WorkspaceGate from './components/workspaceGate';
 import SystemWorkspace from './components/systemworkspace';
 import SystemWorkspaceGuard from './components/systemworkspaceguard';
+import FeatureAdministration from './components/featureadministration';
 
 const WorkspaceHomeRedirect = () => {
   const { profile, scope } = usePermissions();
@@ -63,15 +64,15 @@ const App = () => {
                       <Route index element={<WorkspaceHomeRedirect />} />
                       <Route path="/system" element={<SystemWorkspaceGuard><SystemWorkspace section="overview" /></SystemWorkspaceGuard>} />
                       <Route path="/system/organizations" element={<SystemWorkspaceGuard><SystemWorkspace section="organizations" /></SystemWorkspaceGuard>} />
-                      <Route path="/system/users" element={<SystemWorkspaceGuard><SystemWorkspace section="users" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/users" element={<SystemWorkspaceGuard><AccessAdministration platform /></SystemWorkspaceGuard>} />
                       <Route path="/system/permissions" element={<SystemWorkspaceGuard><SystemWorkspace section="permissions" /></SystemWorkspaceGuard>} />
-                      <Route path="/system/applications" element={<SystemWorkspaceGuard><SystemWorkspace section="applications" /></SystemWorkspaceGuard>} />
+                      <Route path="/system/applications" element={<SystemWorkspaceGuard><FeatureAdministration /></SystemWorkspaceGuard>} />
                       <Route path="/system/approvals" element={<SystemWorkspaceGuard><SystemWorkspace section="approvals" /></SystemWorkspaceGuard>} />
                       <Route path="/system/logs" element={<SystemWorkspaceGuard><SystemWorkspace section="logs" /></SystemWorkspaceGuard>} />
                       <Route path="/system/health" element={<SystemWorkspaceGuard><SystemWorkspace section="health" /></SystemWorkspaceGuard>} />
                       <Route path="/system/settings" element={<SystemWorkspaceGuard><SystemWorkspace section="settings" /></SystemWorkspaceGuard>} />
                       <Route path="/system/reports" element={<SystemWorkspaceGuard><SystemWorkspace section="reports" /></SystemWorkspaceGuard>} />
-                      <Route path="/account" element={<RoleGuard adminOnly><Account /></RoleGuard>} />
+                      <Route path="/account" element={<RoleGuard requiredPermission="account.manage"><AccessAdministration /></RoleGuard>} />
                       <Route path="/product" element={<RoleGuard requiredPermission="product.view"><Products /></RoleGuard>} />
                       <Route path="/chip" element={<RoleGuard requiredPermission="product.view"><Chips /></RoleGuard>} />
                       <Route path="/cluster" element={<RoleGuard requiredPermission="product.view"><Chips onlySection={true} /></RoleGuard>} />

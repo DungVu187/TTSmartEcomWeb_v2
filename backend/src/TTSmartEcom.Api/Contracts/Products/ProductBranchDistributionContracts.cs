@@ -7,6 +7,15 @@ public sealed record ProductBranchDistributionRequest(
     [property: JsonPropertyName("productIds")] IReadOnlyList<string>? ProductIds,
     [property: JsonPropertyName("branchIds")] IReadOnlyList<Guid>? BranchIds);
 
+public sealed record ProductBranchDistributionStatusRequest(
+    [property: JsonPropertyName("productIds")] IReadOnlyList<string>? ProductIds);
+
+public sealed record ProductBranchDistributionStatusResponse(
+    [property: JsonPropertyName("branchId")] Guid BranchId,
+    [property: JsonPropertyName("assignedCount")] int AssignedCount,
+    [property: JsonPropertyName("selectedCount")] int SelectedCount,
+    [property: JsonPropertyName("status")] string Status);
+
 public sealed record ProductDistributionBranchResponse(
     [property: JsonPropertyName("branchId")] Guid BranchId,
     [property: JsonPropertyName("companyId")] Guid CompanyId,

@@ -23,6 +23,18 @@ public sealed class ProductBranchDistributionService(
         return branches.ListActiveBranchesAsync(companyId, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ProductBranchDistributionStatus>> GetDistributionStatusAsync(
+        IReadOnlyCollection<string>? productIds,
+        ICurrentUserContext context,
+        CancellationToken cancellationToken)
+    {
+        Guid companyId = RequireCompanyScope(context);
+        string[] normalizedProducts = NormalizeProductIds(productIds);
+        IReadOnlyList<ActiveCompanyBranch> activeBranches = await branches.ListActiveBranchesAsync(companyId, cancellationToken);
+        return await assignments.GetDistributionStatusAsync(
+            companyId, normalizedProducts, activeBranches.Select(branch => branch.BranchId).ToArray(), cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ProductBranchAssignment>> ListAsync(
         string productId,
         ICurrentUserContext context,
@@ -138,6 +150,11 @@ public sealed class ProductBranchDistributionService(
         {
             throw Error(404, "Có sản phẩm không tồn tại trong công ty hiện tại.");
         }
+
+        if (result.ChangedCount == 0)
+            throw Error(409, isActive
+                ? "Các sản phẩm đã được phân phối đầy đủ tới chi nhánh đã chọn."
+                : "Các sản phẩm chưa được phân phối tới chi nhánh đã chọn.");
 
         return new ProductBranchAssignmentChange(normalizedProducts, normalizedBranches, result.ChangedCount);
     }

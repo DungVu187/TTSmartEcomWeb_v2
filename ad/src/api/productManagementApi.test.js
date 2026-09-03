@@ -30,6 +30,7 @@ import {
   getChipValues,
   getProductDetail,
   getProductDistributionBranches,
+  getProductDistributionStatus,
   getProductDisplaySectionValues,
   getProductDisplayTaxonomy,
   getProductSectionDevices,
@@ -388,20 +389,25 @@ describe("productManagementApi", () => {
     expect(successfulBulkDelete.json).not.toHaveBeenCalled();
   });
 
-  it("maps product distribution branch, assign and revoke contracts", async () => {
+  it("maps product distribution branch, batch status, assign and revoke contracts", async () => {
     const payload = { productIds: ["product-1"], branchIds: ["branch-1"] };
     apiFetchMock.mockResolvedValue(createResponse({ data: { message: "ok" } }));
 
     await getProductDistributionBranches();
+    await getProductDistributionStatus(payload.productIds);
     await assignProductsToBranches(payload);
     await revokeProductsFromBranches(payload);
 
     expect(apiFetchMock).toHaveBeenNthCalledWith(1, "/products/distribution/branches");
-    expect(apiFetchMock).toHaveBeenNthCalledWith(2, "/products/distribution/assign", {
+    expect(apiFetchMock).toHaveBeenNthCalledWith(2, "/products/distribution/status", {
+      method: "POST",
+      json: { productIds: payload.productIds },
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/products/distribution/assign", {
       method: "POST",
       json: payload,
     });
-    expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/products/distribution/revoke", {
+    expect(apiFetchMock).toHaveBeenNthCalledWith(4, "/products/distribution/revoke", {
       method: "POST",
       json: payload,
     });

@@ -7,6 +7,18 @@ public sealed record CompanyMembershipUpsertRequest(
     [property: JsonPropertyName("userType")] byte UserType,
     [property: JsonPropertyName("roleId")] Guid RoleId);
 
+public sealed record CompanyRoleSaveRequest(
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("scopeType")] byte ScopeType,
+    [property: JsonPropertyName("permissionIds")] Guid[]? PermissionIds);
+
+public sealed record BranchMembershipSaveRequest(
+    [property: JsonPropertyName("roleId")] Guid RoleId,
+    [property: JsonPropertyName("isPrimary")] bool IsPrimary);
+
+public sealed record MembershipStatusRequest([property: JsonPropertyName("isActive")] bool IsActive);
+
 public sealed record CompanyRoleResponse(
     [property: JsonPropertyName("roleId")] Guid RoleId,
     [property: JsonPropertyName("companyId")] Guid? CompanyId,
@@ -14,7 +26,8 @@ public sealed record CompanyRoleResponse(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("scopeType")] byte ScopeType,
     [property: JsonPropertyName("isSystemTemplate")] bool IsSystemTemplate,
-    [property: JsonPropertyName("permissions")] IReadOnlyCollection<string> Permissions)
+    [property: JsonPropertyName("permissions")] IReadOnlyCollection<string> Permissions,
+    [property: JsonPropertyName("description")] string? Description)
 {
     public static CompanyRoleResponse From(CompanyRoleDefinition role) => new(
         role.RoleId,
@@ -23,7 +36,8 @@ public sealed record CompanyRoleResponse(
         role.Name,
         (byte)role.ScopeType,
         role.IsSystemTemplate,
-        role.Permissions.Order(StringComparer.Ordinal).ToArray());
+        role.Permissions.Order(StringComparer.Ordinal).ToArray(),
+        role.Description);
 }
 
 public sealed record CompanyAccountResponse(

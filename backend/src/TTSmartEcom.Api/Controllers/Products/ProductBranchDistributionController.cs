@@ -30,6 +30,20 @@ public sealed class ProductBranchDistributionController(ProductBranchDistributio
         });
     }
 
+    [HttpPost("status")]
+    [PermissionAuthorize("product.edit")]
+    public async Task<IActionResult> Status(
+        ProductBranchDistributionStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (CurrentContext() is not { } context) return Unauthorized(new { message = "Access denied, no token provided" });
+        IReadOnlyList<Application.Abstractions.Products.ProductBranchDistributionStatus> statuses =
+            await distribution.GetDistributionStatusAsync(request.ProductIds, context, cancellationToken);
+        return Ok(new { branches = statuses.Select(status => new ProductBranchDistributionStatusResponse(
+            status.BranchId, status.AssignedCount, status.SelectedCount,
+            status.AssignedCount == 0 ? "none" : status.AssignedCount == status.SelectedCount ? "all" : "partial")) });
+    }
+
     [HttpGet("{productId}/branches")]
     [PermissionAuthorize("product.edit")]
     public async Task<IActionResult> List(

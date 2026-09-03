@@ -136,6 +136,7 @@ public sealed class UserProfileController(IUserProfileRepository repository) : C
                 companyId = company.CompanyId,
                 companyCode = company.CompanyCode,
                 name = company.CompanyDisplayName,
+                userType = company.UserType,
                 roles = company.Roles,
                 permissions = company.Permissions,
                 isActive = context.ActiveCompanyId == company.CompanyId,
